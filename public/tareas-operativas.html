@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tareas Operativas - ESERCOM</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <link href="/css/app.css" rel="stylesheet">
+</head>
+<body>
+  <script src="/js/auth.js"></script>
+  <script src="/js/ui.js"></script>
+  <script>
+    const user = renderShell('/tareas-operativas.html', '<i class="fas fa-tasks"></i> Tareas Operativas', 'Registro de horas-hombre por área');
+    const AREAS = ['Flota','Operaciones','Compra','Bodega','Administración','TI'];
+    async function boot() {
+      const content = document.getElementById('app-content');
+      try {
+        const [cecos, list] = await Promise.all([UI.loadCecos(), Auth.api('/api/modulos/tareas')]);
+        content.innerHTML = `
+          <div id="flash"></div>
+          <div class="card"><div class="card-header"><h2>Nueva tarea</h2></div><div class="card-body">
+            <form id="form">
+              <div class="form-row cols-3">
+                <div class="form-group"><label>Área *</label><select id="area" required>${AREAS.map(a=>`<option>${a}</option>`).join('')}</select></div>
+                <div class="form-group"><label>Fecha *</label><input type="date" id="fecha" required value="${new Date().toISOString().slice(0,10)}"></div>
+                <div class="form-group"><label>CECO</label><select id="ceco_id"><option value="">—</option>${UI.optionList(cecos,'id',x=>x.codigo)}</select></div>
+              </div>
+              <div class="form-row cols-3">
+                <div class="form-group"><label>Hora inicio</label><input type="time" id="hora_inicio"></div>
+                <div class="form-group"><label>Hora término</label><input type="time" id="hora_termino"></div>
+                <div class="form-group"><label>HH</label><input type="number" id="horas_hombre" step="0.25" min="0" value="1"></div>
+              </div>
+              <div class="form-row">
+                <div class="form-group"><label>Descripción *</label><input id="descripcion" required></div>
+                <div class="form-group"><label>Ubicación / Camioneta</label><input id="ubicacion" placeholder="Ubicación"><input id="camioneta" placeholder="Patente" style="margin-top:.5rem"></div>
+              </div>
+              <button class="btn btn-primary" type="submit">Registrar</button>
+            </form>
+          </div></div>
+          <div class="card"><div class="card-header"><h2>Registro</h2></div>
+            <div class="card-body table-wrap"><table class="data"><thead><tr><th>Fecha</th><th>Área</th><th>Descripción</th><th>HH</th><th>CECO</th><th>Responsable</th><th></th></tr></thead>
+            <tbody>${list.data.map(r=>`<tr>
+              <td>${formatDate(r.fecha)}</td><td>${r.area}</td><td>${r.descripcion}</td><td>${r.horas_hombre}</td>
+              <td>${r.ceco_codigo||'—'}</td><td>${r.responsable||'—'}</td>
+              <td><button class="btn btn-outline btn-sm" onclick="del(${r.id})">Eliminar</button></td>
+            </tr>`).join('')||UI.emptyRow(7)}</tbody></table></div></div>`;
+        form.onsubmit = async (e) => {
+          e.preventDefault();
+          try {
+            await Auth.api('/api/modulos/tareas', { method:'POST', body: JSON.stringify({
+              area: area.value, fecha: fecha.value, hora_inicio: hora_inicio.value||null, hora_termino: hora_termino.value||null,
+              camioneta: camioneta.value||null, descripcion: descripcion.value, ubicacion: ubicacion.value||null,
+              ceco_id: ceco_id.value?Number(ceco_id.value):null, horas_hombre: Number(horas_hombre.value)||0
+            })});
+            UI.flash('Registrada'); boot();
+          } catch(err){ UI.flash(err.message,true); }
+        };
+      } catch(e){ content.innerHTML=`<div class="alert alert-error">${e.message}</div>`; }
+    }
+    window.del = async (id) => { if(!confirm('¿Eliminar?'))return; await Auth.api('/api/modulos/tareas/'+id+'/eliminar',{method:'POST',body:'{}'}); boot(); };
+    if (user) boot();
+  </script>
+</body>
+</html>

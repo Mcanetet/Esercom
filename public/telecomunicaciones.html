@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Telecomunicaciones - ESERCOM</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <link href="/css/app.css" rel="stylesheet">
+</head>
+<body>
+  <script src="/js/auth.js"></script>
+  <script src="/js/ui.js"></script>
+  <script>
+    const user = renderShell('/telecomunicaciones.html', '<i class="fas fa-satellite-dish"></i> Telecomunicaciones', 'Líneas, equipos e instalaciones');
+    const TIPOS = ['Nueva línea','Equipo','Instalación','Baja','Traslado','Otro'];
+    async function boot() {
+      const content = document.getElementById('app-content');
+      try {
+        const [cecos, users, list] = await Promise.all([UI.loadCecos(), UI.loadUsuarios(), Auth.api('/api/modulos/telecom')]);
+        content.innerHTML = `
+          <div id="flash"></div>
+          <div class="card"><div class="card-header"><h2>Nuevo requerimiento</h2></div><div class="card-body">
+            <form id="form">
+              <div class="form-row cols-3">
+                <div class="form-group"><label>Tipo *</label><select id="tipo_solicitud">${TIPOS.map(t=>`<option>${t}</option>`).join('')}</select></div>
+                <div class="form-group"><label>CECO</label><select id="ceco_id"><option value="">—</option>${UI.optionList(cecos,'id',x=>x.codigo)}</select></div>
+                <div class="form-group"><label>Tipo equipo</label><input id="tipo_equipo" placeholder="Smartphone / Router..."></div>
+              </div>
+              <div class="form-row cols-3">
+                <div class="form-group"><label>Nº línea</label><input id="numero_linea"></div>
+                <div class="form-group"><label>Dirección instalación</label><input id="direccion_instalacion"></div>
+                <div class="form-group"><label>Fecha requerida</label><input type="date" id="fecha_requerida"></div>
+              </div>
+              <div class="form-group"><label>Descripción</label><textarea id="descripcion"></textarea></div>
+              <button class="btn btn-primary" type="submit">Crear</button>
+            </form>
+          </div></div>
+          <div class="card"><div class="card-header"><h2>Requerimientos</h2></div>
+            <div class="card-body table-wrap"><table class="data"><thead><tr><th>Código</th><th>Tipo</th><th>Equipo</th><th>CECO</th><th>Estado</th><th>Asignado</th><th></th></tr></thead>
+            <tbody>${list.data.map(r=>`<tr>
+              <td><strong>${r.codigo}</strong></td><td>${r.tipo_solicitud}</td><td>${r.tipo_equipo||'—'}</td><td>${r.ceco_codigo||'—'}</td>
+              <td>${UI.badge(r.estado,UI.statusColor(r.estado))}</td><td>${r.asignado||'—'}</td>
+              <td>
+                <select onchange="asignar(${r.id}, this.value)" style="margin-right:.35rem">
+                  <option value="">Asignar...</option>${UI.optionList(users,'id',x=>x.nombre+' '+x.apellido)}
+                </select>
+                <button class="btn btn-success btn-sm" onclick="estado(${r.id},'Completado')">Completar</button>
+              </td>
+            </tr>`).join('')||UI.emptyRow(7)}</tbody></table></div></div>`;
+        form.onsubmit = async (e) => {
+          e.preventDefault();
+          try {
+            const r = await Auth.api('/api/modulos/telecom', { method:'POST', body: JSON.stringify({
+              tipo_solicitud: tipo_solicitud.value, ceco_id: ceco_id.value?Number(ceco_id.value):null,
+              tipo_equipo: tipo_equipo.value||null, numero_linea: numero_linea.value||null,
+              direccion_instalacion: direccion_instalacion.value||null, fecha_requerida: fecha_requerida.value||null,
+              descripcion: descripcion.value||null
+            })});
+            UI.flash('Creado '+r.data.codigo); boot();
+          } catch(err){ UI.flash(err.message,true); }
+        };
+      } catch(e){ content.innerHTML=`<div class="alert alert-error">${e.message}</div>`; }
+    }
+    window.asignar = async (id, asignado_id) => {
+      if (!asignado_id) return;
+      await Auth.api('/api/modulos/telecom/'+id, { method:'POST', body: JSON.stringify({ asignado_id: Number(asignado_id), estado: 'Asignado' }) });
+      boot();
+    };
+    window.estado = async (id, estado) => {
+      await Auth.api('/api/modulos/telecom/'+id, { method:'POST', body: JSON.stringify({ estado }) });
+      boot();
+    };
+    if (user) boot();
+  </script>
+</body>
+</html>

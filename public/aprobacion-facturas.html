@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Aprobación de Facturas - ESERCOM</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <link href="/css/app.css" rel="stylesheet">
+</head>
+<body>
+  <script src="/js/auth.js"></script>
+  <script src="/js/ui.js"></script>
+  <script>
+    const user = renderShell('/aprobacion-facturas.html', '<i class="fas fa-file-invoice-dollar"></i> Aprobación de Facturas', 'Lotes de facturas y decisión por ítem');
+    let facturas = [];
+    async function boot() {
+      const content = document.getElementById('app-content');
+      try {
+        const [users, pack] = await Promise.all([UI.loadUsuarios(), Auth.api('/api/modulos/facturas')]);
+        const { lotes, items } = pack.data;
+        content.innerHTML = `
+          <div id="flash"></div>
+          <div class="card"><div class="card-header"><h2>Nuevo lote</h2></div><div class="card-body">
+            <form id="form">
+              <div class="form-row">
+                <div class="form-group"><label>Descripción</label><input id="descripcion" placeholder="Facturas semana..."></div>
+                <div class="form-group"><label>Aprobador</label><select id="aprobador_id"><option value="">—</option>${UI.optionList(users,'id',x=>x.nombre+' '+x.apellido+' ('+x.rol+')')}</select></div>
+              </div>
+              <div class="toolbar">
+                <input id="numero_factura" placeholder="Nº factura">
+                <input id="proveedor" placeholder="Proveedor">
+                <input type="number" id="monto" placeholder="Monto" style="width:120px">
+                <button type="button" class="btn btn-secondary" id="addF">Agregar factura</button>
+              </div>
+              <div id="factBox" class="table-wrap" style="margin:.75rem 0"></div>
+              <button class="btn btn-primary" type="submit">Crear lote</button>
+            </form>
+          </div></div>
+          <div class="card"><div class="card-header"><h2>Lotes</h2></div>
+            <div class="card-body">${lotes.map(l=>{
+              const its = items.filter(i=>i.lote_id===l.id);
+              return `<div style="margin-bottom:1.25rem;padding-bottom:1rem;border-bottom:1px solid var(--border)">
+                <div class="toolbar"><strong>${l.codigo}</strong> ${UI.badge(l.estado,UI.statusColor(l.estado))}
+                  <span style="color:var(--muted)">${l.descripcion||''} · Aprobador: ${l.aprobador||'—'}</span></div>
+                <table class="data"><thead><tr><th>Factura</th><th>Proveedor</th><th>Monto</th><th>Estado</th><th></th></tr></thead>
+                <tbody>${its.map(i=>`<tr>
+                  <td>${i.numero_factura||'—'}</td><td>${i.proveedor||'—'}</td>
+                  <td>${Number(i.monto||0).toLocaleString('es-CL')}</td>
+                  <td>${UI.badge(i.estado,UI.statusColor(i.estado))}</td>
+                  <td>${i.estado==='Pendiente'?`<button class="btn btn-success btn-sm" onclick="decidir(${i.id},true)">Aprobar</button>
+                    <button class="btn btn-danger btn-sm" onclick="decidir(${i.id},false)">Rechazar</button>`:'—'}</td>
+                </tr>`).join('')||UI.emptyRow(5)}</tbody></table>
+              </div>`;
+            }).join('')||'<div class="empty">Sin lotes</div>'}</div></div>`;
+        renderFacts();
+        document.getElementById('addF').onclick = () => {
+          if (!numero_factura.value) return UI.flash('Indique nº factura', true);
+          facturas.push({ numero_factura: numero_factura.value, proveedor: proveedor.value, monto: Number(monto.value)||0 });
+          numero_factura.value=''; proveedor.value=''; monto.value=''; renderFacts();
+        };
+        form.onsubmit = async (e) => {
+          e.preventDefault();
+          if (!facturas.length) return UI.flash('Agregue facturas', true);
+          try {
+            const r = await Auth.api('/api/modulos/facturas/lotes', { method:'POST', body: JSON.stringify({
+              descripcion: descripcion.value||null, aprobador_id: aprobador_id.value?Number(aprobador_id.value):null, facturas
+            })});
+            UI.flash('Lote '+r.data.codigo); facturas=[]; boot();
+          } catch(err){ UI.flash(err.message,true); }
+        };
+      } catch(e){ content.innerHTML=`<div class="alert alert-error">${e.message}</div>`; }
+    }
+    function renderFacts(){
+      factBox.innerHTML = `<table class="data"><thead><tr><th>Nº</th><th>Proveedor</th><th>Monto</th><th></th></tr></thead><tbody>
+        ${facturas.length?facturas.map((f,i)=>`<tr><td>${f.numero_factura}</td><td>${f.proveedor}</td><td>${f.monto}</td>
+        <td><button type="button" class="btn btn-danger btn-sm" onclick="rm(${i})">X</button></td></tr>`).join(''):UI.emptyRow(4,'Sin facturas')}</tbody></table>`;
+    }
+    window.rm = (i)=>{ facturas.splice(i,1); renderFacts(); };
+    window.decidir = async (id, aprobar) => {
+      const observacion = aprobar ? null : (prompt('Motivo:')||'Rechazada');
+      await Auth.api('/api/modulos/facturas/'+id+'/decidir', { method:'POST', body: JSON.stringify({ aprobar, observacion }) });
+      boot();
+    };
+    if (user) boot();
+  </script>
+</body>
+</html>

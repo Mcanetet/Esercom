@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Checklist Flota - ESERCOM</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <link href="/css/app.css" rel="stylesheet">
+</head>
+<body>
+  <script src="/js/auth.js"></script>
+  <script src="/js/ui.js"></script>
+  <script>
+    const user = renderShell('/checklist-flota.html', '<i class="fas fa-clipboard-check"></i> Checklist Flota', 'Inspección diaria de vehículos');
+    const EST = ['OK','Observación','Falla'];
+    function sel(id){ return `<select id="${id}">${EST.map(e=>`<option>${e}</option>`).join('')}</select>`; }
+    async function boot() {
+      const content = document.getElementById('app-content');
+      try {
+        const { data } = await Auth.api('/api/modulos/checklist');
+        content.innerHTML = `
+          <div id="flash"></div>
+          <div class="card"><div class="card-header"><h2>Nuevo checklist</h2></div><div class="card-body">
+            <form id="form">
+              <div class="form-row cols-3">
+                <div class="form-group"><label>Patente *</label><input id="patente" required placeholder="ABCD12"></div>
+                <div class="form-group"><label>Kilometraje</label><input type="number" id="kilometraje" min="0" value="0"></div>
+                <div class="form-group"><label>Fecha</label><input type="date" id="fecha" value="${new Date().toISOString().slice(0,10)}"></div>
+              </div>
+              <div class="form-row cols-3">
+                <div class="form-group"><label>Neumáticos</label>${sel('neumaticos')}</div>
+                <div class="form-group"><label>Luces</label>${sel('luces')}</div>
+                <div class="form-group"><label>Frenos</label>${sel('frenos')}</div>
+              </div>
+              <div class="form-row cols-3">
+                <div class="form-group"><label>Aceite</label>${sel('aceite')}</div>
+                <div class="form-group"><label>Documentos</label>${sel('documentos')}</div>
+                <div class="form-group"><label>Estado general</label>${sel('estado_general')}</div>
+              </div>
+              <div class="form-group"><label>Observaciones</label><textarea id="observaciones"></textarea></div>
+              <button class="btn btn-primary" type="submit">Guardar checklist</button>
+            </form>
+          </div></div>
+          <div class="card"><div class="card-header"><h2>Historial</h2></div>
+            <div class="card-body table-wrap"><table class="data"><thead><tr><th>Fecha</th><th>Patente</th><th>Km</th><th>Estado</th><th>Conductor</th><th>Obs</th><th></th></tr></thead>
+            <tbody>${data.map(r=>`<tr>
+              <td>${formatDate(r.fecha)}</td><td><strong>${r.patente}</strong></td><td>${r.kilometraje||0}</td>
+              <td>${UI.badge(r.estado_general, UI.statusColor(r.estado_general==='OK'?'OK':r.estado_general))}</td>
+              <td>${r.conductor||'—'}</td><td>${r.observaciones||'—'}</td>
+              <td><button class="btn btn-outline btn-sm" onclick="anular(${r.id})">Anular</button></td>
+            </tr>`).join('')||UI.emptyRow(7)}</tbody></table></div></div>`;
+        form.onsubmit = async (e) => {
+          e.preventDefault();
+          try {
+            await Auth.api('/api/modulos/checklist', { method:'POST', body: JSON.stringify({
+              patente: patente.value, kilometraje: Number(kilometraje.value)||0, fecha: fecha.value,
+              neumaticos: neumaticos.value, luces: luces.value, frenos: frenos.value, aceite: aceite.value,
+              documentos: documentos.value, estado_general: estado_general.value, observaciones: observaciones.value||null
+            })});
+            UI.flash('Checklist guardado'); boot();
+          } catch(err){ UI.flash(err.message,true); }
+        };
+      } catch(e){ content.innerHTML=`<div class="alert alert-error">${e.message}</div>`; }
+    }
+    window.anular = async (id)=>{ if(!confirm('¿Anular?'))return; await Auth.api('/api/modulos/checklist/'+id+'/anular',{method:'POST',body:'{}'}); boot(); };
+    if (user) boot();
+  </script>
+</body>
+</html>

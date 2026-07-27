@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Configuraciones - ESERCOM</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <link href="/css/app.css" rel="stylesheet">
+</head>
+<body>
+  <script src="/js/auth.js"></script>
+  <script src="/js/ui.js"></script>
+  <script>
+    const user = renderShell('/configuraciones.html', '<i class="fas fa-cog"></i> Configuraciones', 'Maestros del sistema');
+    async function boot() {
+      const content = document.getElementById('app-content');
+      try {
+        const [resumen, cecos, mats, provs, users, roles] = await Promise.all([
+          Auth.api('/api/modulos/config/resumen'),
+          UI.loadCecos(), UI.loadMateriales(), UI.loadProveedores(), UI.loadUsuarios(),
+          Auth.api('/api/modulos/config/roles')
+        ]);
+        const s = resumen.data;
+        content.innerHTML = `
+          <div id="flash"></div>
+          <div class="stats-grid">
+            <div class="stat-card"><div class="stat-label">Usuarios</div><div class="stat-value">${s.usuarios}</div></div>
+            <div class="stat-card"><div class="stat-label">CECOs</div><div class="stat-value">${s.cecos}</div></div>
+            <div class="stat-card"><div class="stat-label">Materiales</div><div class="stat-value">${s.materiales}</div></div>
+            <div class="stat-card"><div class="stat-label">Proveedores</div><div class="stat-value">${s.proveedores}</div></div>
+          </div>
+          <div class="card"><div class="card-header"><h2>Nuevo material</h2></div><div class="card-body">
+            <form id="matForm" class="toolbar">
+              <input id="mCodigo" placeholder="Código" required>
+              <input id="mNombre" placeholder="Nombre" required>
+              <input id="mUnidad" value="UN" style="width:70px">
+              <input type="number" id="mPrecio" placeholder="Precio" style="width:100px">
+              <input type="number" id="mStock" placeholder="Stock" style="width:90px">
+              <button class="btn btn-primary" type="submit">Guardar</button>
+            </form>
+          </div></div>
+          <div class="card"><div class="card-header"><h2>Nuevo CECO</h2></div><div class="card-body">
+            <form id="cecoForm" class="toolbar">
+              <input id="cCodigo" placeholder="Código" required>
+              <input id="cNombre" placeholder="Nombre" required>
+              <button class="btn btn-primary" type="submit">Guardar</button>
+            </form>
+          </div></div>
+          <div class="card"><div class="card-header"><h2>Nuevo proveedor</h2></div><div class="card-body">
+            <form id="provForm" class="toolbar">
+              <input id="pRazon" placeholder="Razón social" required>
+              <input id="pRut" placeholder="RUT" required>
+              <input id="pEmail" placeholder="Email">
+              <button class="btn btn-primary" type="submit">Guardar</button>
+            </form>
+          </div></div>
+          <div class="card"><div class="card-header"><h2>Nuevo usuario</h2></div><div class="card-body">
+            <form id="userForm">
+              <div class="form-row cols-3">
+                <div class="form-group"><label>Nombre</label><input id="uNombre" required></div>
+                <div class="form-group"><label>Apellido</label><input id="uApellido" required></div>
+                <div class="form-group"><label>Email</label><input type="email" id="uEmail" required></div>
+              </div>
+              <div class="form-row cols-3">
+                <div class="form-group"><label>Password</label><input type="password" id="uPass" required></div>
+                <div class="form-group"><label>Cargo</label><input id="uCargo"></div>
+                <div class="form-group"><label>Rol</label><select id="uRol">${UI.optionList(roles.data,'id',x=>x.nombre)}</select></div>
+              </div>
+              <button class="btn btn-primary" type="submit">Crear usuario</button>
+            </form>
+          </div></div>
+          <div class="card"><div class="card-header"><h2>Usuarios (${users.length})</h2></div>
+            <div class="card-body table-wrap"><table class="data"><thead><tr><th>Nombre</th><th>Email</th><th>Cargo</th><th>Rol</th></tr></thead>
+            <tbody>${users.map(u=>`<tr><td>${u.nombre} ${u.apellido}</td><td>${u.email}</td><td>${u.cargo||'—'}</td><td>${u.rol||'—'}</td></tr>`).join('')}</tbody></table></div></div>
+          <div class="card"><div class="card-header"><h2>Materiales (${mats.length})</h2></div>
+            <div class="card-body table-wrap"><table class="data"><thead><tr><th>Código</th><th>Nombre</th><th>Unidad</th><th>Precio</th><th>Stock</th></tr></thead>
+            <tbody>${mats.slice(0,50).map(m=>`<tr><td>${m.codigo}</td><td>${m.nombre}</td><td>${m.unidad}</td><td>${m.precio}</td><td>${m.stock}</td></tr>`).join('')}</tbody></table></div></div>`;
+
+        matForm.onsubmit = async (e)=>{ e.preventDefault(); try{ await Auth.api('/api/modulos/config/materiales',{method:'POST',body:JSON.stringify({codigo:mCodigo.value,nombre:mNombre.value,unidad:mUnidad.value,precio:Number(mPrecio.value)||0,stock:Number(mStock.value)||0})}); UI.flash('Material creado'); boot(); }catch(err){UI.flash(err.message,true);} };
+        cecoForm.onsubmit = async (e)=>{ e.preventDefault(); try{ await Auth.api('/api/modulos/config/cecos',{method:'POST',body:JSON.stringify({codigo:cCodigo.value,nombre:cNombre.value})}); UI.flash('CECO creado'); boot(); }catch(err){UI.flash(err.message,true);} };
+        provForm.onsubmit = async (e)=>{ e.preventDefault(); try{ await Auth.api('/api/modulos/config/proveedores',{method:'POST',body:JSON.stringify({razon_social:pRazon.value,rut:pRut.value,email:pEmail.value||null})}); UI.flash('Proveedor creado'); boot(); }catch(err){UI.flash(err.message,true);} };
+        userForm.onsubmit = async (e)=>{ e.preventDefault(); try{ await Auth.api('/api/modulos/config/usuarios',{method:'POST',body:JSON.stringify({nombre:uNombre.value,apellido:uApellido.value,email:uEmail.value,password:uPass.value,cargo:uCargo.value||null,rol_id:Number(uRol.value)})}); UI.flash('Usuario creado'); boot(); }catch(err){UI.flash(err.message,true);} };
+      } catch(e){ content.innerHTML=`<div class="alert alert-error">${e.message}</div>`; }
+    }
+    if (user) boot();
+  </script>
+</body>
+</html>

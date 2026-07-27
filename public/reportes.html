@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reportes - ESERCOM</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <link href="/css/app.css" rel="stylesheet">
+</head>
+<body>
+  <script src="/js/auth.js"></script>
+  <script src="/js/ui.js"></script>
+  <script>
+    const user = renderShell('/reportes.html', '<i class="fas fa-chart-bar"></i> Reportes', 'Consulta cross-módulo');
+    async function boot() {
+      const content = document.getElementById('app-content');
+      content.innerHTML = `
+        <div id="flash"></div>
+        <div class="card"><div class="card-header"><h2>Generar reporte</h2></div><div class="card-body">
+          <div class="toolbar">
+            <select id="modulo">
+              <option value="materiales">Salida materiales</option>
+              <option value="compras">Compras</option>
+              <option value="telecom">Telecomunicaciones</option>
+              <option value="ssgg">Servicios generales</option>
+              <option value="flota">Checklist flota</option>
+            </select>
+            <input type="date" id="desde">
+            <input type="date" id="hasta">
+            <button class="btn btn-primary" id="btnGen"><i class="fas fa-search"></i> Generar</button>
+            <button class="btn btn-secondary" id="btnCsv"><i class="fas fa-file-csv"></i> CSV</button>
+          </div>
+          <div class="table-wrap" id="out"><div class="empty">Seleccione filtros y genere</div></div>
+        </div></div>`;
+      let last = [];
+      btnGen.onclick = async () => {
+        try {
+          const params = new URLSearchParams({ modulo: modulo.value });
+          if (desde.value) params.set('desde', desde.value);
+          if (hasta.value) params.set('hasta', hasta.value);
+          const { data } = await Auth.api('/api/modulos/reportes?'+params.toString());
+          last = data;
+          if (!data.length) { out.innerHTML = '<div class="empty">Sin resultados</div>'; return; }
+          const keys = Object.keys(data[0]);
+          out.innerHTML = `<table class="data"><thead><tr>${keys.map(k=>`<th>${k}</th>`).join('')}</tr></thead>
+            <tbody>${data.map(r=>`<tr>${keys.map(k=>`<td>${r[k]??'—'}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+        } catch(e){ UI.flash(e.message,true); }
+      };
+      btnCsv.onclick = () => {
+        if (!last.length) return UI.flash('Genere un reporte primero', true);
+        const keys = Object.keys(last[0]);
+        const csv = [keys.join(';'), ...last.map(r=>keys.map(k=>`"${String(r[k]??'').replace(/"/g,'""')}"`).join(';'))].join('\n');
+        const blob = new Blob([csv], { type:'text/csv;charset=utf-8' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `reporte-${modulo.value}.csv`;
+        a.click();
+      };
+    }
+    if (user) boot();
+  </script>
+</body>
+</html>

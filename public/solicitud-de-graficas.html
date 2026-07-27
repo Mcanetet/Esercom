@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Solicitud de Gráficas - ESERCOM</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <link href="/css/app.css" rel="stylesheet">
+</head>
+<body>
+  <script src="/js/auth.js"></script>
+  <script src="/js/ui.js"></script>
+  <script>
+    const user = renderShell('/solicitud-de-graficas.html', '<i class="fas fa-image"></i> Solicitud de Gráficas', 'Planos, OT y entrega de gráficas');
+    async function boot() {
+      const content = document.getElementById('app-content');
+      try {
+        const [cecos, list] = await Promise.all([UI.loadCecos(), Auth.api('/api/modulos/graficas')]);
+        content.innerHTML = `
+          <div id="flash"></div>
+          <div class="card"><div class="card-header"><h2>Nueva solicitud</h2></div><div class="card-body">
+            <form id="form" class="form-row cols-3">
+              <div class="form-group"><label>CECO</label><select id="ceco_id"><option value="">—</option>${UI.optionList(cecos,'id',x=>x.codigo+' — '+x.nombre)}</select></div>
+              <div class="form-group"><label>Fecha requerida</label><input type="date" id="fecha_requerida"></div>
+              <div class="form-group"><label>Observaciones</label><input id="observaciones" required></div>
+              <button class="btn btn-primary" type="submit">Crear</button>
+            </form>
+          </div></div>
+          <div class="card"><div class="card-header"><h2>Solicitudes</h2></div>
+            <div class="card-body table-wrap"><table class="data"><thead><tr><th>Código</th><th>CECO</th><th>Solicitante</th><th>OT</th><th>OC</th><th>Estado</th><th></th></tr></thead>
+            <tbody>${list.data.map(r=>`<tr>
+              <td><strong>${r.codigo}</strong></td><td>${r.ceco_codigo||'—'}</td><td>${r.solicitante}</td>
+              <td>${r.ot_numero||'—'}</td><td>${r.oc_numero||'—'}</td>
+              <td>${UI.badge(r.estado,UI.statusColor(r.estado))}</td>
+              <td>
+                <button class="btn btn-success btn-sm" onclick="act(${r.id},{estado:'Aprobada'})">Aprobar</button>
+                <button class="btn btn-secondary btn-sm" onclick="ot(${r.id})">OT/OC</button>
+                <button class="btn btn-primary btn-sm" onclick="act(${r.id},{estado:'Entregada',tipo_entrega:'Guía'})">Entregar</button>
+              </td>
+            </tr>`).join('')||UI.emptyRow(7)}</tbody></table></div></div>`;
+        form.onsubmit = async (e) => {
+          e.preventDefault();
+          try {
+            const r = await Auth.api('/api/modulos/graficas', { method:'POST', body: JSON.stringify({
+              ceco_id: ceco_id.value?Number(ceco_id.value):null, fecha_requerida: fecha_requerida.value||null, observaciones: observaciones.value
+            })});
+            UI.flash('Creada '+r.data.codigo); boot();
+          } catch(err){ UI.flash(err.message,true); }
+        };
+      } catch(e){ content.innerHTML=`<div class="alert alert-error">${e.message}</div>`; }
+    }
+    window.act = async (id, body) => { await Auth.api('/api/modulos/graficas/'+id+'/estado',{method:'POST',body:JSON.stringify(body)}); boot(); };
+    window.ot = async (id) => {
+      const ot_numero = prompt('Nº OT:');
+      const oc_numero = prompt('Nº OC:');
+      await act(id, { estado: 'En gestión', ot_numero, oc_numero });
+    };
+    if (user) boot();
+  </script>
+</body>
+</html>

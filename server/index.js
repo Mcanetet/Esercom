@@ -8,6 +8,7 @@ const { initAll } = require('./db/tenants');
 const authRoutes = require('./routes/auth');
 const catalogosRoutes = require('./routes/catalogos');
 const solicitudesRoutes = require('./routes/solicitudes');
+const modulesRoutes = require('./routes/modules');
 
 // Asegura DBs al arrancar
 initAll();
@@ -22,6 +23,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/api/auth', authRoutes);
 app.use('/api/catalogos', catalogosRoutes);
 app.use('/api/solicitudes', solicitudesRoutes);
+app.use('/api/modulos', modulesRoutes);
 
 app.get('/api/health', (_req, res) => {
   res.json({

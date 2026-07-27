@@ -83,29 +83,27 @@ function renderShell(activeHref, title, subtitle) {
   const links = [
     { href: '/home.html', icon: 'fa-tachometer-alt', label: 'Menú Principal' },
     { href: '/solicitud-salida-materiales.html', icon: 'fa-boxes', label: 'Solicitud de Salida Materiales' },
-    { href: '#', icon: 'fa-layer-group', label: 'Salida Material por Actividad', soon: true },
-    { href: '#', icon: 'fa-dolly-flatbed', label: 'Portal Proveedores', soon: true },
-    { href: '#', icon: 'fa-ruler-combined', label: 'Materiales por Receta', soon: true },
-    { href: '#', icon: 'fa-shopping-cart', label: 'Solicitud de Compras', soon: true },
-    { href: '#', icon: 'fa-database', label: 'Creación Datos Maestros', soon: true },
-    { href: '#', icon: 'fa-tasks', label: 'Tareas Operativas', soon: true },
-    { href: '#', icon: 'fa-image', label: 'Solicitud de Gráficas', soon: true },
-    { href: '#', icon: 'fa-tools', label: 'Servicios Generales', soon: true },
-    { href: '#', icon: 'fa-truck-ramp-box', label: 'Agenda Camión Pluma', soon: true },
-    { href: '#', icon: 'fa-clipboard-check', label: 'Checklist Flota', soon: true },
-    { href: '#', icon: 'fa-satellite-dish', label: 'Telecomunicaciones', soon: true },
-    { href: '#', icon: 'fa-file-contract', label: 'Gestión de Contratos', soon: true },
-    { href: '#', icon: 'fa-file-invoice-dollar', label: 'Aprobación de Facturas', soon: true },
-    { href: '#', icon: 'fa-chart-bar', label: 'Reportes', soon: true },
-    { href: '#', icon: 'fa-cog', label: 'Configuraciones', soon: true },
-    { href: '#', icon: 'fa-trash-alt', label: 'Papelera', soon: true }
+    { href: '/salida-material-por-actividad.html', icon: 'fa-layer-group', label: 'Salida Material por Actividad' },
+    { href: '/portal-proveedores.html', icon: 'fa-dolly-flatbed', label: 'Portal Proveedores' },
+    { href: '/materiales-por-receta.html', icon: 'fa-ruler-combined', label: 'Materiales por Receta' },
+    { href: '/solicitud-de-compras.html', icon: 'fa-shopping-cart', label: 'Solicitud de Compras' },
+    { href: '/creacion-datos-maestros.html', icon: 'fa-database', label: 'Creación Datos Maestros' },
+    { href: '/tareas-operativas.html', icon: 'fa-tasks', label: 'Tareas Operativas' },
+    { href: '/solicitud-de-graficas.html', icon: 'fa-image', label: 'Solicitud de Gráficas' },
+    { href: '/serviciosgenerales.html', icon: 'fa-tools', label: 'Servicios Generales' },
+    { href: '/agenda-camion-pluma.html', icon: 'fa-truck-ramp-box', label: 'Agenda Camión Pluma' },
+    { href: '/checklist-flota.html', icon: 'fa-clipboard-check', label: 'Checklist Flota' },
+    { href: '/telecomunicaciones.html', icon: 'fa-satellite-dish', label: 'Telecomunicaciones' },
+    { href: '/seguimiento-contratos.html', icon: 'fa-file-contract', label: 'Gestión de Contratos' },
+    { href: '/aprobacion-facturas.html', icon: 'fa-file-invoice-dollar', label: 'Aprobación de Facturas' },
+    { href: '/reportes.html', icon: 'fa-chart-bar', label: 'Reportes' },
+    { href: '/configuraciones.html', icon: 'fa-cog', label: 'Configuraciones' },
+    { href: '/papelera.html', icon: 'fa-trash-alt', label: 'Papelera' }
   ];
 
   const nav = links.map((l) => {
     const active = l.href === activeHref ? 'active' : '';
-    const titleAttr = l.soon ? ' title="Próximamente"' : '';
-    const href = l.soon ? '#' : l.href;
-    return `<a class="${active}" href="${href}"${titleAttr}><i class="fas ${l.icon}"></i> ${l.label}</a>`;
+    return `<a class="${active}" href="${l.href}"><i class="fas ${l.icon}"></i> ${l.label}</a>`;
   }).join('');
 
   document.body.insertAdjacentHTML('afterbegin', `

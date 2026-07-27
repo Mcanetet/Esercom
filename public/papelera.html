@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Papelera - ESERCOM</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <link href="/css/app.css" rel="stylesheet">
+</head>
+<body>
+  <script src="/js/auth.js"></script>
+  <script src="/js/ui.js"></script>
+  <script>
+    const user = renderShell('/papelera.html', '<i class="fas fa-trash-alt"></i> Papelera', 'Restaurar o eliminar definitivamente');
+    async function boot() {
+      const content = document.getElementById('app-content');
+      try {
+        const { data } = await Auth.api('/api/modulos/papelera');
+        content.innerHTML = `
+          <div id="flash"></div>
+          <div class="card"><div class="card-header"><h2>Elementos eliminados</h2></div>
+            <div class="card-body table-wrap">
+              ${data.length?`<table class="data"><thead><tr><th>Tipo</th><th>Código</th><th>Título</th><th>Eliminado por</th><th>Fecha</th><th></th></tr></thead>
+              <tbody>${data.map(r=>`<tr>
+                <td>${UI.badge(r.tipo,'#64748b')}</td><td>${r.codigo||'—'}</td><td>${r.titulo||'—'}</td>
+                <td>${r.eliminado_por_nombre||'—'}</td><td>${formatDate(r.fecha_eliminacion)}</td>
+                <td>
+                  <button class="btn btn-success btn-sm" onclick="restaurar(${r.id})">Restaurar</button>
+                  <button class="btn btn-danger btn-sm" onclick="eliminar(${r.id})">Borrar</button>
+                </td>
+              </tr>`).join('')}</tbody></table>`:'<div class="empty">Papelera vacía</div>'}
+            </div></div>`;
+      } catch(e){ content.innerHTML=`<div class="alert alert-error">${e.message}</div>`; }
+    }
+    window.restaurar = async (id) => {
+      try { await Auth.api('/api/modulos/papelera/'+id+'/restaurar',{method:'POST',body:'{}'}); UI.flash('Restaurado'); boot(); }
+      catch(e){ UI.flash(e.message,true); }
+    };
+    window.eliminar = async (id) => {
+      if (!confirm('¿Eliminar permanentemente?')) return;
+      try { await Auth.api('/api/modulos/papelera/'+id+'/eliminar',{method:'POST',body:'{}'}); UI.flash('Eliminado'); boot(); }
+      catch(e){ UI.flash(e.message,true); }
+    };
+    if (user) boot();
+  </script>
+</body>
+</html>

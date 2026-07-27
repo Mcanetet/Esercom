@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Materiales por Receta - ESERCOM</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <link href="/css/app.css" rel="stylesheet">
+</head>
+<body>
+  <script src="/js/auth.js"></script>
+  <script src="/js/ui.js"></script>
+  <script>
+    const user = renderShell('/materiales-por-receta.html', '<i class="fas fa-ruler-combined"></i> Materiales por Receta', 'Tipos de obra e insumos configurados');
+    async function boot() {
+      const content = document.getElementById('app-content');
+      try {
+        const { data } = await Auth.api('/api/modulos/recetas');
+        const mats = await UI.loadMateriales();
+        content.innerHTML = `
+          <div id="flash"></div>
+          <div class="card"><div class="card-header"><h2>Nuevo tipo de obra</h2></div><div class="card-body">
+            <form id="tipoForm" class="toolbar">
+              <input id="tipoNombre" placeholder="Nombre tipo" required style="min-width:200px">
+              <input id="tipoDesc" placeholder="Descripción">
+              <button class="btn btn-primary" type="submit">Agregar tipo</button>
+            </form>
+          </div></div>
+          <div class="card"><div class="card-header"><h2>Agregar insumo</h2></div><div class="card-body">
+            <form id="insumoForm">
+              <div class="form-row cols-3">
+                <div class="form-group"><label>Tipo</label><select id="tipo_id" required>${UI.optionList(data.tipos,'id',x=>x.nombre)}</select></div>
+                <div class="form-group"><label>Descripción *</label><input id="descripcion" required></div>
+                <div class="form-group"><label>Material maestro</label><select id="material_id"><option value="">—</option>${UI.optionList(mats,'id',x=>x.codigo+' — '+x.nombre)}</select></div>
+              </div>
+              <div class="form-row cols-3">
+                <div class="form-group"><label>Cantidad / obra</label><input type="number" id="cantidad" value="1" min="0.01" step="0.01"></div>
+                <div class="form-group"><label>Unidad</label><input id="unidad" value="UN"></div>
+                <div class="form-group"><label>Categoría</label><input id="categoria"></div>
+              </div>
+              <button class="btn btn-primary" type="submit">Agregar insumo</button>
+            </form>
+          </div></div>
+          <div class="card"><div class="card-header"><h2>Calcular consumo</h2></div><div class="card-body">
+            <div class="toolbar">
+              <select id="calcTipo">${UI.optionList(data.tipos,'id',x=>x.nombre)}</select>
+              <input type="number" id="calcObras" value="1" min="1" style="width:100px">
+              <button class="btn btn-secondary" type="button" id="btnCalc">Calcular</button>
+            </div>
+            <div id="calcOut" class="table-wrap"></div>
+          </div></div>
+          <div class="card"><div class="card-header"><h2>Insumos configurados</h2></div>
+            <div class="card-body table-wrap"><table class="data"><thead><tr><th>Tipo</th><th>Descripción</th><th>Material</th><th>Cant.</th><th>Unidad</th><th>Categoría</th></tr></thead>
+            <tbody>${data.insumos.map(i=>`<tr><td>${i.tipo_nombre}</td><td>${i.descripcion}</td><td>${i.material_codigo||'—'}</td><td>${i.cantidad}</td><td>${i.unidad}</td><td>${i.categoria||'—'}</td></tr>`).join('')||UI.emptyRow(6)}</tbody></table></div>
+          </div>`;
+        document.getElementById('tipoForm').onsubmit = async (e) => {
+          e.preventDefault();
+          try {
+            await Auth.api('/api/modulos/recetas/tipos', { method:'POST', body: JSON.stringify({ nombre: tipoNombre.value, descripcion: tipoDesc.value }) });
+            UI.flash('Tipo creado'); boot();
+          } catch(err){ UI.flash(err.message,true); }
+        };
+        document.getElementById('insumoForm').onsubmit = async (e) => {
+          e.preventDefault();
+          try {
+            await Auth.api('/api/modulos/recetas/insumos', { method:'POST', body: JSON.stringify({
+              tipo_id: Number(tipo_id.value), descripcion: descripcion.value, material_id: material_id.value?Number(material_id.value):null,
+              cantidad: Number(cantidad.value), unidad: unidad.value, categoria: categoria.value||null
+            })});
+            UI.flash('Insumo agregado'); boot();
+          } catch(err){ UI.flash(err.message,true); }
+        };
+        document.getElementById('btnCalc').onclick = async () => {
+          const { data: rows } = await Auth.api('/api/modulos/recetas/calcular', { method:'POST', body: JSON.stringify({ tipo_id: Number(calcTipo.value), cantidad_obras: Number(calcObras.value)||1 })});
+          calcOut.innerHTML = `<table class="data"><thead><tr><th>Insumo</th><th>Cant/obra</th><th>Total</th><th>Unidad</th><th>Stock</th></tr></thead><tbody>
+            ${rows.map(r=>`<tr><td>${r.descripcion}</td><td>${r.cantidad}</td><td><strong>${r.cantidad_total}</strong></td><td>${r.unidad}</td><td>${r.stock??'—'}</td></tr>`).join('')}</tbody></table>`;
+        };
+      } catch (e) { content.innerHTML = `<div class="alert alert-error">${e.message}</div>`; }
+    }
+    if (user) boot();
+  </script>
+</body>
+</html>

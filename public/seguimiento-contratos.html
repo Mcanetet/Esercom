@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gestión de Contratos - ESERCOM</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <link href="/css/app.css" rel="stylesheet">
+</head>
+<body>
+  <script src="/js/auth.js"></script>
+  <script src="/js/ui.js"></script>
+  <script>
+    const user = renderShell('/seguimiento-contratos.html', '<i class="fas fa-file-contract"></i> Gestión de Contratos', 'Seguimiento de contratos con proveedores');
+    const ESTADOS = ['Borrador','En revisión','Vigente','Vencido','Terminado'];
+    async function boot() {
+      const content = document.getElementById('app-content');
+      try {
+        const [provs, list] = await Promise.all([UI.loadProveedores(), Auth.api('/api/modulos/contratos')]);
+        content.innerHTML = `
+          <div id="flash"></div>
+          <div class="card"><div class="card-header"><h2>Nuevo contrato</h2></div><div class="card-body">
+            <form id="form" class="form-row">
+              <div class="form-group"><label>Proveedor</label><select id="proveedor_id"><option value="">—</option>${UI.optionList(provs,'id',x=>x.razon_social)}</select></div>
+              <div class="form-group"><label>Descripción *</label><input id="descripcion" required></div>
+              <button class="btn btn-primary" type="submit" style="align-self:end;height:42px">Crear</button>
+            </form>
+          </div></div>
+          <div class="card"><div class="card-header"><h2>Contratos</h2></div>
+            <div class="card-body table-wrap"><table class="data"><thead><tr><th>Código</th><th>Proveedor</th><th>Descripción</th><th>Estado</th><th>Creado por</th><th></th></tr></thead>
+            <tbody>${list.data.map(r=>`<tr>
+              <td><strong>${r.codigo}</strong></td><td>${r.proveedor_nombre||'—'}</td><td>${r.descripcion}</td>
+              <td>${UI.badge(r.estado,UI.statusColor(r.estado))}</td><td>${r.creador||'—'}</td>
+              <td><select onchange="cambiar(${r.id}, this.value)">
+                ${ESTADOS.map(e=>`<option ${e===r.estado?'selected':''}>${e}</option>`).join('')}
+              </select></td>
+            </tr>`).join('')||UI.emptyRow(6)}</tbody></table></div></div>`;
+        form.onsubmit = async (e) => {
+          e.preventDefault();
+          const p = proveedor_id.selectedOptions[0];
+          try {
+            const r = await Auth.api('/api/modulos/contratos', { method:'POST', body: JSON.stringify({
+              proveedor_id: proveedor_id.value?Number(proveedor_id.value):null,
+              proveedor_nombre: p && proveedor_id.value ? p.textContent : null,
+              descripcion: descripcion.value
+            })});
+            UI.flash('Creado '+r.data.codigo); boot();
+          } catch(err){ UI.flash(err.message,true); }
+        };
+      } catch(e){ content.innerHTML=`<div class="alert alert-error">${e.message}</div>`; }
+    }
+    window.cambiar = async (id, estado) => {
+      await Auth.api('/api/modulos/contratos/'+id, { method:'POST', body: JSON.stringify({ estado }) });
+      UI.flash('Estado actualizado'); boot();
+    };
+    if (user) boot();
+  </script>
+</body>
+</html>

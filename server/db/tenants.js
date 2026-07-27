@@ -5,6 +5,7 @@ const bcrypt = require('bcryptjs');
 const config = require('../config');
 
 const schemaSql = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
+const schemaModulesSql = fs.readFileSync(path.join(__dirname, 'schema-modules.sql'), 'utf8');
 
 const connections = new Map();
 
@@ -181,6 +182,125 @@ function seedCompany(db, company) {
       VALUES (1, 1, 3, 'Creación', 'Solicitud creada (seed)')
     `).run();
   }
+
+  seedModules(db, company);
+}
+
+function seedModules(db, company) {
+  const prefix = company.slug.substring(0, 3).toUpperCase();
+
+  db.prepare(`
+    INSERT OR IGNORE INTO materiales_receta_tipos (id, nombre, descripcion) VALUES
+      (1, 'Paradero estándar', 'Receta tipo paradero'),
+      (2, 'Poste luminaria', 'Instalación luminaria'),
+      (3, 'Canalización', 'Obra de canalización')
+  `).run();
+
+  db.prepare(`
+    INSERT OR IGNORE INTO materiales_receta_insumos (id, tipo_id, material_id, descripcion, cantidad, unidad, categoria) VALUES
+      (1, 1, 3, 'Poste metálico 6m', 1, 'UN', 'Estructura'),
+      (2, 1, 7, 'Luminaria LED 50W', 1, 'UN', 'Iluminación'),
+      (3, 1, 8, 'Abrazadera metálica', 4, 'UN', 'Fijación'),
+      (4, 2, 3, 'Poste metálico 6m', 1, 'UN', 'Estructura'),
+      (5, 2, 7, 'Luminaria LED 50W', 2, 'UN', 'Iluminación'),
+      (6, 3, 6, 'Canaleta PVC 40x25', 10, 'UN', 'Canalización'),
+      (7, 3, 1, 'Cable UTP Cat6', 50, 'MT', 'Cableado')
+  `).run();
+
+  db.prepare(`
+    INSERT OR IGNORE INTO solicitudes_compras
+      (id, numero_solicitud, solicitante_id, ceco_id, jefe_proyecto_id, fecha_requerida, estado, observaciones)
+    VALUES (1, 'SC-00001', 3, 1, 2, date('now', '+7 days'), 'Pendiente', 'Compra de ejemplo')
+  `).run();
+
+  db.prepare(`
+    INSERT OR IGNORE INTO solicitudes_compras_detalle
+      (id, solicitud_id, material_id, descripcion, cantidad, unidad, precio_estimado)
+    VALUES (1, 1, 7, 'Luminaria LED 50W', 20, 'UN', 28000)
+  `).run();
+
+  db.prepare(`
+    INSERT OR IGNORE INTO portal_proveedor
+      (id, solicitud_id, proveedor_id, numero_guia, guia_estado, factura_estado)
+    VALUES (1, 1, 1, NULL, 'Pendiente', 'Pendiente')
+  `).run();
+
+  db.prepare(`
+    INSERT OR IGNORE INTO creacion_datos_maestros
+      (id, codigo, tipo, descripcion, unidad_medida, estado, solicitante_id)
+    VALUES (1, NULL, 'Material', 'Tornillo hexagonal M8', 'UN', 'Pendiente', 3)
+  `).run();
+
+  db.prepare(`
+    INSERT OR IGNORE INTO tareas_operativas
+      (id, area, fecha, hora_inicio, hora_termino, descripcion, ubicacion, ceco_id, horas_hombre, responsable_id)
+    VALUES (1, 'Operaciones', date('now'), '08:00', '12:00', 'Inspección de obra', 'Terreno', 1, 4, 3)
+  `).run();
+
+  db.prepare(`
+    INSERT OR IGNORE INTO solicitud_graficas
+      (id, codigo, ceco_id, solicitante_id, fecha_requerida, observaciones, estado)
+    VALUES (1, 'SG-00001', 1, 3, date('now', '+5 days'), 'Planos de instalación', 'Pendiente Aprobación')
+  `).run();
+
+  db.prepare(`
+    INSERT OR IGNORE INTO servicios_generales
+      (id, codigo, categoria, prioridad, titulo, descripcion, ubicacion, estado, solicitante_id)
+    VALUES (1, 'SSGG-00001', 'Eléctrico', 'Alta', 'Falla tablero eléctrico', 'Corte intermitente en bodega', 'Bodega Central', 'Abierto', 3)
+  `).run();
+
+  db.prepare(`
+    INSERT OR IGNORE INTO agenda_camion_pluma_v2
+      (id, empresa, fecha, hora_inicio, hora_fin, tipo_servicio, solicitante, chofer, proyecto, origen, destino, kilometraje, estado, creado_por)
+    VALUES (1, ?, date('now', '+1 day'), '09:00', '13:00', 'Servicio', 'María González', 'Chofer Demo', 'PRY-2026-001', 'Bodega', 'Obra', 45, 'Programado', 1)
+  `).run(company.name);
+
+  db.prepare(`
+    INSERT OR IGNORE INTO checklist_flota
+      (id, patente, kilometraje, fecha, conductor_id, estado_general, observaciones)
+    VALUES (1, 'ABCD12', 45200, date('now'), 3, 'OK', 'Checklist diario de ejemplo')
+  `).run();
+
+  db.prepare(`
+    INSERT OR IGNORE INTO requerimientos_telecom
+      (id, codigo, tipo_solicitud, ceco_id, tipo_equipo, descripcion, estado, solicitante_id)
+    VALUES (1, 'TEL-00001', 'Nueva línea', 1, 'Smartphone', 'Línea para jefe de terreno', 'Pendiente', 3)
+  `).run();
+
+  db.prepare(`
+    INSERT OR IGNORE INTO seguimiento_contratos
+      (id, codigo, proveedor_id, proveedor_nombre, descripcion, estado, creado_por)
+    VALUES (1, 'CTR-00001', 1, 'Proveedor Demo SpA', 'Contrato de suministro anual', 'Borrador', 1)
+  `).run();
+
+  db.prepare(`
+    INSERT OR IGNORE INTO aprobacion_facturas_lote
+      (id, codigo, descripcion, creado_por, aprobador_id, estado)
+    VALUES (1, 'LOTE-00001', 'Facturas semana actual', 5, 2, 'Pendiente')
+  `).run();
+
+  db.prepare(`
+    INSERT OR IGNORE INTO aprobacion_facturas
+      (id, lote_id, numero_factura, proveedor, monto, estado)
+    VALUES
+      (1, 1, 'F-1001', 'Proveedor Demo SpA', 350000, 'Pendiente'),
+      (2, 1, 'F-1002', 'Distribuidora Norte Ltda', 128000, 'Pendiente')
+  `).run();
+
+  db.prepare(`
+    INSERT OR IGNORE INTO salidas_actividad
+      (id, codigo, tipo_receta_id, ceco_id, solicitante_id, cantidad_obras, numero_proyecto, estado)
+    VALUES (1, 'SMA-00001', 1, 1, 3, 2, 'PRY-2026-001', 'Pendiente')
+  `).run();
+
+  db.prepare(`
+    INSERT OR IGNORE INTO salidas_actividad_detalle
+      (id, salida_id, material_id, descripcion, cantidad, unidad)
+    VALUES
+      (1, 1, 3, 'Poste metálico 6m', 2, 'UN'),
+      (2, 1, 7, 'Luminaria LED 50W', 2, 'UN'),
+      (3, 1, 8, 'Abrazadera metálica', 8, 'UN')
+  `).run();
 }
 
 function initAll() {
@@ -192,6 +312,7 @@ function initAll() {
     const existed = fs.existsSync(file);
     const db = openDb(company.slug);
     db.exec(schemaSql);
+    db.exec(schemaModulesSql);
     seedCompany(db, company);
     connections.set(company.slug, db);
     results.push({

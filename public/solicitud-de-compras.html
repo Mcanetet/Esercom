@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Solicitud de Compras - ESERCOM</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <link href="/css/app.css" rel="stylesheet">
+</head>
+<body>
+  <script src="/js/auth.js"></script>
+  <script src="/js/ui.js"></script>
+  <script>
+    const user = renderShell('/solicitud-de-compras.html', '<i class="fas fa-shopping-cart"></i> Solicitud de Compras', 'Requerimientos de compra y aprobación');
+    let items = [];
+    async function boot() {
+      const content = document.getElementById('app-content');
+      try {
+        const [cecos, list, mats] = await Promise.all([UI.loadCecos(), Auth.api('/api/modulos/compras'), UI.loadMateriales()]);
+        content.innerHTML = `
+          <div id="flash"></div>
+          <div class="card"><div class="card-header"><h2>Nueva solicitud de compra</h2></div><div class="card-body">
+            <form id="form">
+              <div class="form-row cols-3">
+                <div class="form-group"><label>CECO *</label><select id="ceco_id" required><option value="">...</option>${UI.optionList(cecos,'id',x=>x.codigo+' — '+x.nombre)}</select></div>
+                <div class="form-group"><label>Fecha requerida</label><input type="date" id="fecha_requerida"></div>
+                <div class="form-group"><label>Observaciones</label><input id="observaciones"></div>
+              </div>
+              <div class="form-row">
+                <div class="form-group"><label>Material</label><select id="mat"><option value="">Ítem libre</option>${UI.optionList(mats,'id',x=>x.codigo+' — '+x.nombre)}</select></div>
+                <div class="form-group"><label>Descripción</label><input id="desc"></div>
+              </div>
+              <div class="toolbar">
+                <input type="number" id="cant" value="1" min="0.01" step="0.01" style="width:100px">
+                <input id="unidad" value="UN" style="width:80px">
+                <input type="number" id="precio" value="0" style="width:120px" placeholder="Precio">
+                <button type="button" class="btn btn-secondary" id="addItem">Agregar ítem</button>
+              </div>
+              <div class="table-wrap" id="itemsBox"></div>
+              <button class="btn btn-primary" type="submit" style="margin-top:1rem"><i class="fas fa-save"></i> Crear solicitud</button>
+            </form>
+          </div></div>
+          <div class="card"><div class="card-header"><h2>Solicitudes</h2></div>
+            <div class="card-body table-wrap" id="list">${renderList(list.data)}</div></div>`;
+        renderItems();
+        document.getElementById('addItem').onclick = () => {
+          const matId = mat.value ? Number(mat.value) : null;
+          const opt = mat.selectedOptions[0];
+          items.push({
+            material_id: matId,
+            descripcion: desc.value || (opt && matId ? opt.textContent : 'Ítem'),
+            cantidad: Number(cant.value)||1,
+            unidad: unidad.value||'UN',
+            precio_estimado: Number(precio.value)||0
+          });
+          desc.value=''; renderItems();
+        };
+        document.getElementById('form').onsubmit = async (e) => {
+          e.preventDefault();
+          if (!items.length) return UI.flash('Agregue ítems', true);
+          try {
+            const r = await Auth.api('/api/modulos/compras', { method:'POST', body: JSON.stringify({
+              ceco_id: Number(ceco_id.value), fecha_requerida: fecha_requerida.value||null, observaciones: observaciones.value||null, items
+            })});
+            UI.flash('Creada '+r.data.numero_solicitud); items=[]; e.target.reset(); boot();
+          } catch(err){ UI.flash(err.message,true); }
+        };
+      } catch(e){ content.innerHTML=`<div class="alert alert-error">${e.message}</div>`; }
+    }
+    function renderItems(){
+      itemsBox.innerHTML = `<table class="data"><thead><tr><th>Descripción</th><th>Cant</th><th>Unidad</th><th>Precio</th><th></th></tr></thead><tbody>
+        ${items.length?items.map((i,idx)=>`<tr><td>${i.descripcion}</td><td>${i.cantidad}</td><td>${i.unidad}</td><td>${i.precio_estimado}</td>
+        <td><button type="button" class="btn btn-danger btn-sm" onclick="rm(${idx})">X</button></td></tr>`).join(''):UI.emptyRow(5,'Sin ítems')}</tbody></table>`;
+    }
+    function renderList(rows){
+      if(!rows.length) return '<div class="empty">Sin solicitudes</div>';
+      return `<table class="data"><thead><tr><th>Nº</th><th>CECO</th><th>Solicitante</th><th>Fecha</th><th>Estado</th><th></th></tr></thead><tbody>
+        ${rows.map(r=>`<tr><td><strong>${r.numero_solicitud}</strong></td><td>${r.ceco_codigo||'—'}</td><td>${r.solicitante}</td>
+        <td>${formatDate(r.fecha_solicitud)}</td><td>${UI.badge(r.estado,UI.statusColor(r.estado))}</td>
+        <td><button class="btn btn-success btn-sm" onclick="estado(${r.id},'Aprobada')">Aprobar</button>
+        <button class="btn btn-danger btn-sm" onclick="estado(${r.id},'Rechazada')">Rechazar</button>
+        <button class="btn btn-outline btn-sm" onclick="eliminar(${r.id})">Papelera</button></td></tr>`).join('')}</tbody></table>`;
+    }
+    window.rm = (i)=>{ items.splice(i,1); renderItems(); };
+    window.estado = async (id, estado)=>{ try{ await Auth.api('/api/modulos/compras/'+id+'/estado',{method:'POST',body:JSON.stringify({estado})}); UI.flash('Actualizado'); boot(); }catch(e){UI.flash(e.message,true);} };
+    window.eliminar = async (id)=>{ if(!confirm('¿Mover a papelera?'))return; try{ await Auth.api('/api/modulos/compras/'+id+'/eliminar',{method:'POST',body:'{}'}); UI.flash('Movida'); boot(); }catch(e){UI.flash(e.message,true);} };
+    if (user) boot();
+  </script>
+</body>
+</html>

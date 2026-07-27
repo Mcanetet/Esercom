@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Portal Proveedores - ESERCOM</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <link href="/css/app.css" rel="stylesheet">
+</head>
+<body>
+  <script src="/js/auth.js"></script>
+  <script src="/js/ui.js"></script>
+  <script>
+    const user = renderShell('/portal-proveedores.html', '<i class="fas fa-dolly-flatbed"></i> Portal Proveedores', 'Guías y facturas vinculadas a salidas');
+    async function boot() {
+      const content = document.getElementById('app-content');
+      try {
+        const { data } = await Auth.api('/api/modulos/portal');
+        content.innerHTML = `<div id="flash"></div><div class="card"><div class="card-header"><h2>Solicitudes portal</h2></div>
+          <div class="card-body table-wrap">${render(data)}</div></div>`;
+      } catch (e) { content.innerHTML = `<div class="alert alert-error">${e.message}</div>`; }
+    }
+    function render(rows) {
+      if (!rows.length) return '<div class="empty">Sin registros en portal</div>';
+      return `<table class="data"><thead><tr>
+        <th>Solicitud</th><th>Proyecto</th><th>Proveedor</th><th>Guía</th><th>Estado guía</th><th>Factura</th><th>Estado factura</th><th>Acciones</th>
+      </tr></thead><tbody>${rows.map(r=>`
+        <tr>
+          <td><strong>${r.solicitud_codigo}</strong></td>
+          <td>${r.numero_proyecto||'—'}</td>
+          <td>${r.proveedor_nombre||'—'}</td>
+          <td>${r.numero_guia||'—'}</td>
+          <td>${UI.badge(r.guia_estado, UI.statusColor(r.guia_estado))}</td>
+          <td>${r.numero_factura||'—'} ${r.monto_factura?('· '+Number(r.monto_factura).toLocaleString('es-CL')):''}</td>
+          <td>${UI.badge(r.factura_estado, UI.statusColor(r.factura_estado))}</td>
+          <td style="white-space:nowrap">
+            <button class="btn btn-secondary btn-sm" onclick="guia(${r.id})">Guía</button>
+            <button class="btn btn-secondary btn-sm" onclick="factura(${r.id})">Factura</button>
+            <button class="btn btn-success btn-sm" onclick="validar(${r.id},true)">Validar</button>
+            <button class="btn btn-primary btn-sm" onclick="aprFact(${r.id},true)">Aprobar F.</button>
+          </td>
+        </tr>`).join('')}</tbody></table>`;
+    }
+    async function guia(id) {
+      const numero_guia = prompt('Número de guía:');
+      if (!numero_guia) return;
+      const fecha_entrega = prompt('Fecha entrega (YYYY-MM-DD):', new Date().toISOString().slice(0,10));
+      const persona_retira = prompt('Persona que retira:') || '';
+      try {
+        await Auth.api('/api/modulos/portal/'+id+'/guia', { method:'POST', body: JSON.stringify({ numero_guia, fecha_entrega, persona_retira }) });
+        UI.flash('Guía registrada'); boot();
+      } catch(e){ UI.flash(e.message,true); }
+    }
+    async function factura(id) {
+      const numero_factura = prompt('Nº factura:');
+      if (!numero_factura) return;
+      const monto_factura = Number(prompt('Monto:') || 0);
+      try {
+        await Auth.api('/api/modulos/portal/'+id+'/factura', { method:'POST', body: JSON.stringify({ numero_factura, monto_factura }) });
+        UI.flash('Factura registrada'); boot();
+      } catch(e){ UI.flash(e.message,true); }
+    }
+    async function validar(id, aprobar) {
+      try { await Auth.api('/api/modulos/portal/'+id+'/validar-guia', { method:'POST', body: JSON.stringify({ aprobar }) }); UI.flash('Guía actualizada'); boot(); }
+      catch(e){ UI.flash(e.message,true); }
+    }
+    async function aprFact(id, aprobar) {
+      try { await Auth.api('/api/modulos/portal/'+id+'/aprobar-factura', { method:'POST', body: JSON.stringify({ aprobar }) }); UI.flash('Factura actualizada'); boot(); }
+      catch(e){ UI.flash(e.message,true); }
+    }
+    window.guia=guia; window.factura=factura; window.validar=validar; window.aprFact=aprFact;
+    if (user) boot();
+  </script>
+</body>
+</html>
