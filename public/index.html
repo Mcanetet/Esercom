@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ESERCOM - Redirigiendo...</title>
+  <script>
+    (function () {
+      var token = localStorage.getItem('auth_token');
+      var userRaw = localStorage.getItem('user');
+      if (token && userRaw && userRaw !== '{}' && userRaw !== 'null') {
+        try {
+          var u = JSON.parse(userRaw);
+          if (u && typeof u === 'object' && Object.keys(u).length > 0) {
+            window.location.replace('/home.html');
+            return;
+          }
+        } catch (e) {}
+      }
+      window.location.replace('/login.html');
+    })();
+  </script>
+</head>
+<body>
+  <p style="font-family:sans-serif;text-align:center;margin-top:3rem;color:#64748b">Redirigiendo...</p>
+</body>
+</html>

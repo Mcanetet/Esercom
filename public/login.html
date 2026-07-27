@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Iniciar Sesión - ESERCOM</title>
+  <script>
+    (function () {
+      if (localStorage.getItem('theme') === 'dark') {
+        document.documentElement.setAttribute('data-theme', 'dark');
+      }
+    })();
+  </script>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link href="/css/login.css" rel="stylesheet">
+</head>
+<body>
+  <button class="theme-toggle" id="themeToggle" type="button" title="Cambiar tema" aria-label="Tema">
+    <i class="fas fa-moon"></i>
+  </button>
+  <div class="bg-particles"></div>
+
+  <div class="login-container">
+    <div class="login-card">
+      <div class="logo-section">
+        <div class="logo"><span>ESERCOM</span></div>
+        <h1 class="login-title">Iniciar Sesión</h1>
+        <p class="login-subtitle">Gestión Integral Empresarial</p>
+      </div>
+
+      <form id="loginForm" novalidate>
+        <div id="alertContainer"></div>
+
+        <div class="form-group">
+          <label class="form-label" for="empresa">Empresa</label>
+          <div class="company-chips" role="group" aria-label="Seleccionar empresa">
+            <button type="button" class="company-chip active" data-slug="global">Global</button>
+            <button type="button" class="company-chip" data-slug="sercom">Sercom</button>
+            <button type="button" class="company-chip" data-slug="nexus">Nexus</button>
+            <button type="button" class="company-chip" data-slug="tactica">Tactica</button>
+            <button type="button" class="company-chip" data-slug="intercanje">Intercanje</button>
+          </div>
+          <div class="input-container">
+            <select class="form-select" id="empresa" name="empresa" required>
+              <option value="global">Global</option>
+              <option value="sercom">Sercom</option>
+              <option value="nexus">Nexus</option>
+              <option value="tactica">Tactica</option>
+              <option value="intercanje">Intercanje</option>
+            </select>
+            <i class="fas fa-building input-icon"></i>
+            <i class="fas fa-chevron-down select-chevron"></i>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="email">Correo electrónico</label>
+          <div class="input-container">
+            <input type="email" class="form-control" id="email" name="email"
+              autocomplete="email" autocapitalize="none" autocorrect="off" spellcheck="false"
+              placeholder="Ingrese su correo electrónico" required>
+            <i class="fas fa-envelope input-icon"></i>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="password">Contraseña</label>
+          <div class="input-container">
+            <input type="password" class="form-control" id="password" name="password"
+              autocomplete="current-password" placeholder="Ingrese su contraseña" required>
+            <button type="button" class="password-toggle" id="togglePassword" tabindex="-1">
+              <i class="fas fa-eye"></i>
+            </button>
+          </div>
+        </div>
+
+        <div class="remember-section">
+          <label class="remember-checkbox">
+            <input type="checkbox" id="remember" name="remember">
+            Recordarme
+          </label>
+        </div>
+
+        <button type="submit" class="btn-login" id="loginBtn">
+          <span class="btn-text">Iniciar Sesión</span>
+        </button>
+      </form>
+
+      <div class="demo-hint" id="demoHint"></div>
+
+      <div class="footer">
+        <p>&copy; 2026 ESERCOM. Todos los derechos reservados.</p>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/login.js"></script>
+</body>
+</html>

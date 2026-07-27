@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Menú Principal - ESERCOM</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <link href="/css/app.css" rel="stylesheet">
+</head>
+<body>
+  <script src="/js/auth.js"></script>
+  <script>
+    const user = renderShell(
+      '/home.html',
+      '<i class="fas fa-home"></i> Menú Principal',
+      'Acceso rápido a todos los módulos del sistema'
+    );
+
+    async function loadDashboard() {
+      const content = document.getElementById('app-content');
+      try {
+        const { data } = await Auth.api('/api/catalogos/dashboard');
+        content.innerHTML = `
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="icon" style="background:linear-gradient(135deg,#f59e0b,#fbbf24)"><i class="fas fa-clock"></i></div>
+              <div class="stat-label">Solicitudes activas</div>
+              <div class="stat-value">${data.pendientes}</div>
+            </div>
+            <div class="stat-card">
+              <div class="icon" style="background:linear-gradient(135deg,#22c55e,#4ade80)"><i class="fas fa-check-circle"></i></div>
+              <div class="stat-label">Cerradas</div>
+              <div class="stat-value">${data.cerradas}</div>
+            </div>
+            <div class="stat-card">
+              <div class="icon" style="background:linear-gradient(135deg,#0ea5e9,#38bdf8)"><i class="fas fa-boxes"></i></div>
+              <div class="stat-label">Materiales</div>
+              <div class="stat-value">${data.materiales}</div>
+            </div>
+            <div class="stat-card">
+              <div class="icon" style="background:linear-gradient(135deg,#6366f1,#818cf8)"><i class="fas fa-users"></i></div>
+              <div class="stat-label">Usuarios</div>
+              <div class="stat-value">${data.usuarios}</div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <h2><i class="fas fa-th-large" style="color:var(--accent);margin-right:.4rem"></i> Módulos Disponibles</h2>
+              <small style="color:var(--muted)">${data.empresa.razonSocial}</small>
+            </div>
+            <div class="card-body">
+              <div class="module-grid">
+                <a class="module-card" href="/solicitud-salida-materiales.html">
+                  <div class="module-icon" style="background:linear-gradient(135deg,#2563eb,#60a5fa)"><i class="fas fa-boxes"></i></div>
+                  <div><h6>Solicitud de Salida de Materiales</h6><p>Crear y gestionar entregas desde bodega.</p></div>
+                </a>
+                <div class="module-card disabled">
+                  <div class="module-icon" style="background:linear-gradient(135deg,#7c3aed,#a78bfa)"><i class="fas fa-layer-group"></i></div>
+                  <div><h6>Salida Material por Actividad</h6><p>Próximamente en Node.</p></div>
+                </div>
+                <div class="module-card disabled">
+                  <div class="module-icon" style="background:linear-gradient(135deg,#0891b2,#22d3ee)"><i class="fas fa-dolly-flatbed"></i></div>
+                  <div><h6>Portal Proveedores</h6><p>Próximamente en Node.</p></div>
+                </div>
+                <div class="module-card disabled">
+                  <div class="module-icon" style="background:linear-gradient(135deg,#059669,#34d399)"><i class="fas fa-shopping-cart"></i></div>
+                  <div><h6>Solicitud de Compras</h6><p>Próximamente en Node.</p></div>
+                </div>
+                <div class="module-card disabled">
+                  <div class="module-icon" style="background:linear-gradient(135deg,#ea580c,#fb923c)"><i class="fas fa-truck-ramp-box"></i></div>
+                  <div><h6>Agenda Camión Pluma</h6><p>Próximamente en Node.</p></div>
+                </div>
+                <div class="module-card disabled">
+                  <div class="module-icon" style="background:linear-gradient(135deg,#475569,#94a3b8)"><i class="fas fa-chart-bar"></i></div>
+                  <div><h6>Reportes</h6><p>Próximamente en Node.</p></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <h2><i class="fas fa-history" style="color:var(--accent);margin-right:.4rem"></i> Solicitudes recientes</h2>
+              <a class="btn btn-primary btn-sm" href="/solicitud-salida-materiales.html"><i class="fas fa-plus"></i> Nueva</a>
+            </div>
+            <div class="card-body table-wrap">
+              ${data.recientes.length === 0 ? '<div class="empty">Sin solicitudes aún</div>' : `
+                <table class="data">
+                  <thead>
+                    <tr>
+                      <th>Código</th>
+                      <th>Proyecto</th>
+                      <th>Solicitante</th>
+                      <th>Fecha</th>
+                      <th>Estado</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${data.recientes.map((r) => `
+                      <tr>
+                        <td><strong>${r.codigo}</strong></td>
+                        <td>${r.numero_proyecto || '—'}</td>
+                        <td>${r.solicitante}</td>
+                        <td>${formatDate(r.fecha_solicitud)}</td>
+                        <td><span class="badge" style="background:${r.color}">${r.estado}</span></td>
+                        <td><a class="btn btn-outline btn-sm" href="/ver-solicitud.html?id=${r.id}">Ver</a></td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              `}
+            </div>
+          </div>
+        `;
+      } catch (err) {
+        content.innerHTML = `<div class="alert alert-error">${err.message}</div>`;
+      }
+    }
+
+    if (user) loadDashboard();
+  </script>
+</body>
+</html>

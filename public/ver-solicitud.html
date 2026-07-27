@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ver Solicitud - ESERCOM</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <link href="/css/app.css" rel="stylesheet">
+</head>
+<body>
+  <script src="/js/auth.js"></script>
+  <script>
+    const user = renderShell(
+      '/solicitud-salida-materiales.html',
+      '<i class="fas fa-file-alt"></i> Detalle de solicitud',
+      'Consulta, aprobación e historial'
+    );
+
+    const id = new URLSearchParams(window.location.search).get('id');
+
+    async function load() {
+      const content = document.getElementById('app-content');
+      if (!id) {
+        content.innerHTML = '<div class="alert alert-error">ID de solicitud no indicado</div>';
+        return;
+      }
+      try {
+        const { data: s } = await Auth.api('/api/solicitudes/' + id);
+        const total = (s.detalle || []).reduce((acc, d) => acc + Number(d.subtotal || 0), 0);
+        const canApprove = s.estado_id === 1;
+        const canReject = s.estado_id === 1 || s.estado_id === 4;
+
+        content.innerHTML = `
+          <div id="flash"></div>
+          <div class="toolbar">
+            <a class="btn btn-secondary" href="/solicitud-salida-materiales.html"><i class="fas fa-arrow-left"></i> Volver</a>
+            <div class="spacer"></div>
+            ${canApprove ? `<button class="btn btn-success" id="btnAprobar"><i class="fas fa-check"></i> Aprobar</button>` : ''}
+            ${canReject ? `<button class="btn btn-danger" id="btnRechazar"><i class="fas fa-times"></i> Rechazar</button>` : ''}
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <h2>${s.codigo} <span class="badge" style="background:${s.estado_color};margin-left:.5rem">${s.estado}</span></h2>
+              <small style="color:var(--muted)">${s.ubicacion_entrega === 'directo-proveedor' ? 'Directo proveedor' : 'Bodega'}</small>
+            </div>
+            <div class="card-body">
+              <div class="form-row cols-3">
+                <div><strong>Proyecto</strong><div>${s.numero_proyecto || '—'}</div></div>
+                <div><strong>CECO</strong><div>${s.ceco_codigo || '—'} ${s.ceco_nombre ? '— ' + s.ceco_nombre : ''}</div></div>
+                <div><strong>Fecha solicitud</strong><div>${formatDate(s.fecha_solicitud)}</div></div>
+                <div><strong>Fecha requerida</strong><div>${formatDate(s.fecha_requerida)}</div></div>
+                <div><strong>Solicitante</strong><div>${s.solicitante}</div></div>
+                <div><strong>Jefe de proyecto</strong><div>${s.jefe_proyecto || '—'}</div></div>
+                <div><strong>Bodega</strong><div>${s.bodega_nombre || '—'}</div></div>
+                <div><strong>Quién retira</strong><div>${s.quien_retira || '—'}</div></div>
+                <div><strong>Quién usa</strong><div>${s.quien_usa || '—'}</div></div>
+              </div>
+              ${s.observaciones ? `<p style="margin-top:1rem;color:var(--muted)"><strong>Obs:</strong> ${s.observaciones}</p>` : ''}
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header"><h2>Materiales</h2><strong>Total: ${total.toLocaleString('es-CL')}</strong></div>
+            <div class="card-body table-wrap">
+              <table class="data">
+                <thead>
+                  <tr>
+                    <th>Código</th><th>Material</th><th>Cantidad</th><th>Entregada</th><th>Pendiente</th><th>Unidad</th><th>Precio</th><th>Subtotal</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${(s.detalle || []).map((d) => `
+                    <tr>
+                      <td>${d.material_codigo}</td>
+                      <td>${d.material_nombre}</td>
+                      <td>${d.cantidad}</td>
+                      <td>${d.cantidad_entregada || 0}</td>
+                      <td>${d.cantidad_pendiente != null ? d.cantidad_pendiente : d.cantidad}</td>
+                      <td>${d.unidad || '—'}</td>
+                      <td>${Number(d.precio_unitario || 0).toLocaleString('es-CL')}</td>
+                      <td>${Number(d.subtotal || 0).toLocaleString('es-CL')}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header"><h2>Historial</h2></div>
+            <div class="card-body table-wrap">
+              <table class="data">
+                <thead><tr><th>Fecha</th><th>Acción</th><th>Estado</th><th>Usuario</th><th>Comentarios</th></tr></thead>
+                <tbody>
+                  ${(s.historial || []).map((h) => `
+                    <tr>
+                      <td>${formatDate(h.fecha_cambio)}</td>
+                      <td>${h.accion}</td>
+                      <td>${h.estado || '—'}</td>
+                      <td>${h.usuario || '—'}</td>
+                      <td>${h.comentarios || '—'}</td>
+                    </tr>
+                  `).join('') || '<tr><td colspan="5" class="empty">Sin historial</td></tr>'}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        `;
+
+        document.getElementById('btnAprobar')?.addEventListener('click', async () => {
+          try {
+            await Auth.api('/api/solicitudes/' + id + '/aprobar', { method: 'POST', body: '{}' });
+            flash('Solicitud aprobada');
+            setTimeout(load, 600);
+          } catch (err) { flash(err.message, true); }
+        });
+        document.getElementById('btnRechazar')?.addEventListener('click', async () => {
+          const comentarios = prompt('Motivo del rechazo:') || 'Rechazada';
+          try {
+            await Auth.api('/api/solicitudes/' + id + '/rechazar', {
+              method: 'POST',
+              body: JSON.stringify({ comentarios })
+            });
+            flash('Solicitud rechazada');
+            setTimeout(load, 600);
+          } catch (err) { flash(err.message, true); }
+        });
+      } catch (err) {
+        content.innerHTML = `<div class="alert alert-error">${err.message}</div>`;
+      }
+    }
+
+    function flash(msg, isError) {
+      const el = document.getElementById('flash');
+      if (!el) return;
+      el.innerHTML = `<div class="alert ${isError ? 'alert-error' : 'alert-ok'}">${msg}</div>`;
+    }
+
+    if (user) load();
+  </script>
+</body>
+</html>

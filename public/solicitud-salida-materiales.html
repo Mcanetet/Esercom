@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Solicitud de Salida Materiales - ESERCOM</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <link href="/css/app.css" rel="stylesheet">
+</head>
+<body>
+  <script src="/js/auth.js"></script>
+  <script>
+    const user = renderShell(
+      '/solicitud-salida-materiales.html',
+      '<i class="fas fa-boxes"></i> Solicitud de Salida Materiales',
+      'Gestión de entregas desde bodega o directo proveedor'
+    );
+
+    let cecos = [];
+    let bodegas = [];
+    let estados = [];
+    let lineItems = [];
+    let searchTimer = null;
+
+    async function boot() {
+      const content = document.getElementById('app-content');
+      content.innerHTML = '<div class="empty"><i class="fas fa-spinner fa-spin"></i> Cargando...</div>';
+      try {
+        const [c, b, e, list] = await Promise.all([
+          Auth.api('/api/catalogos/cecos'),
+          Auth.api('/api/catalogos/bodegas'),
+          Auth.api('/api/catalogos/estados'),
+          Auth.api('/api/solicitudes')
+        ]);
+        cecos = c.data;
+        bodegas = b.data;
+        estados = e.data;
+        renderPage(list.data);
+      } catch (err) {
+        content.innerHTML = `<div class="alert alert-error">${err.message}</div>`;
+      }
+    }
+
+    function renderPage(solicitudes) {
+      const content = document.getElementById('app-content');
+      content.innerHTML = `
+        <div id="flash"></div>
+
+        <div class="card">
+          <div class="card-header">
+            <h2><i class="fas fa-plus-circle" style="color:var(--accent);margin-right:.4rem"></i> Nueva solicitud</h2>
+          </div>
+          <div class="card-body">
+            <form id="solicitudForm">
+              <div class="form-row cols-3">
+                <div class="form-group">
+                  <label>Número de proyecto *</label>
+                  <input type="text" id="numero_proyecto" required placeholder="PRY-2026-001">
+                </div>
+                <div class="form-group">
+                  <label>CECO *</label>
+                  <select id="ceco_id" required>
+                    <option value="">Seleccione...</option>
+                    ${cecos.map((c) => `<option value="${c.id}">${c.codigo} — ${c.nombre}</option>`).join('')}
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Fecha requerida</label>
+                  <input type="date" id="fecha_requerida">
+                </div>
+              </div>
+              <div class="form-row cols-3">
+                <div class="form-group">
+                  <label>Ubicación de entrega</label>
+                  <select id="ubicacion_entrega">
+                    <option value="bodega">Bodega</option>
+                    <option value="directo-proveedor">Directo proveedor</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Bodega</label>
+                  <select id="bodega_nombre">
+                    <option value="">Seleccione...</option>
+                    ${bodegas.map((b) => `<option value="${b.nombre}">${b.nombre}</option>`).join('')}
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Quién retira</label>
+                  <input type="text" id="quien_retira" placeholder="Nombre">
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label>Quién usa</label>
+                  <input type="text" id="quien_usa" placeholder="Cuadrilla / área">
+                </div>
+                <div class="form-group">
+                  <label>Observaciones</label>
+                  <input type="text" id="observaciones" placeholder="Opcional">
+                </div>
+              </div>
+
+              <div class="form-group" style="position:relative">
+                <label>Buscar material</label>
+                <input type="text" id="material_q" placeholder="Código o nombre..." autocomplete="off">
+                <div id="materialResults" class="material-search-results" style="display:none"></div>
+              </div>
+
+              <div class="table-wrap" style="margin-bottom:1rem">
+                <table class="data" id="lineTable">
+                  <thead>
+                    <tr>
+                      <th>Código</th>
+                      <th>Material</th>
+                      <th>Cantidad</th>
+                      <th>Unidad</th>
+                      <th>Precio</th>
+                      <th>Subtotal</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody id="lineBody">
+                    <tr><td colspan="7" class="empty">Agregue materiales con el buscador</td></tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <button type="submit" class="btn btn-primary" id="btnCrear">
+                <i class="fas fa-save"></i> Crear solicitud
+              </button>
+            </form>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h2><i class="fas fa-list" style="color:var(--accent);margin-right:.4rem"></i> Solicitudes</h2>
+          </div>
+          <div class="card-body">
+            <div class="toolbar">
+              <input type="search" id="filterQ" placeholder="Buscar código / proyecto / solicitante">
+              <select id="filterEstado">
+                <option value="">Todos los estados</option>
+                ${estados.map((e) => `<option value="${e.id}">${e.nombre}</option>`).join('')}
+              </select>
+              <button class="btn btn-secondary btn-sm" type="button" id="btnFiltrar"><i class="fas fa-filter"></i> Filtrar</button>
+            </div>
+            <div class="table-wrap" id="listWrap">
+              ${renderList(solicitudes)}
+            </div>
+          </div>
+        </div>
+      `;
+
+      wireForm();
+      document.getElementById('btnFiltrar').addEventListener('click', refreshList);
+    }
+
+    function renderList(rows) {
+      if (!rows.length) return '<div class="empty">No hay solicitudes</div>';
+      return `
+        <table class="data">
+          <thead>
+            <tr>
+              <th>Código</th>
+              <th>Proyecto</th>
+              <th>CECO</th>
+              <th>Solicitante</th>
+              <th>Entrega</th>
+              <th>Fecha</th>
+              <th>Estado</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map((r) => `
+              <tr>
+                <td><strong>${r.codigo}</strong></td>
+                <td>${r.numero_proyecto || '—'}</td>
+                <td>${r.ceco_codigo || '—'}</td>
+                <td>${r.solicitante}</td>
+                <td>${r.ubicacion_entrega === 'directo-proveedor' ? 'Proveedor' : 'Bodega'}</td>
+                <td>${formatDate(r.fecha_solicitud)}</td>
+                <td><span class="badge" style="background:${r.estado_color}">${r.estado}</span></td>
+                <td><a class="btn btn-outline btn-sm" href="/ver-solicitud.html?id=${r.id}">Ver</a></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+    }
+
+    async function refreshList() {
+      const q = document.getElementById('filterQ').value.trim();
+      const estado_id = document.getElementById('filterEstado').value;
+      const params = new URLSearchParams();
+      if (q) params.set('q', q);
+      if (estado_id) params.set('estado_id', estado_id);
+      const { data } = await Auth.api('/api/solicitudes?' + params.toString());
+      document.getElementById('listWrap').innerHTML = renderList(data);
+    }
+
+    function renderLines() {
+      const body = document.getElementById('lineBody');
+      if (!lineItems.length) {
+        body.innerHTML = '<tr><td colspan="7" class="empty">Agregue materiales con el buscador</td></tr>';
+        return;
+      }
+      body.innerHTML = lineItems.map((item, idx) => `
+        <tr>
+          <td>${item.codigo}</td>
+          <td>${item.nombre}</td>
+          <td><input type="number" min="0.01" step="0.01" value="${item.cantidad}" data-idx="${idx}" class="qty-input" style="width:90px;padding:.35rem .5rem;border:1px solid var(--border);border-radius:6px"></td>
+          <td>${item.unidad}</td>
+          <td>${Number(item.precio).toLocaleString('es-CL')}</td>
+          <td>${(item.cantidad * item.precio).toLocaleString('es-CL')}</td>
+          <td><button type="button" class="btn btn-danger btn-sm" data-remove="${idx}"><i class="fas fa-trash"></i></button></td>
+        </tr>
+      `).join('');
+
+      body.querySelectorAll('.qty-input').forEach((el) => {
+        el.addEventListener('change', (e) => {
+          const i = Number(e.target.dataset.idx);
+          lineItems[i].cantidad = Number(e.target.value) || 1;
+          renderLines();
+        });
+      });
+      body.querySelectorAll('[data-remove]').forEach((el) => {
+        el.addEventListener('click', () => {
+          lineItems.splice(Number(el.dataset.remove), 1);
+          renderLines();
+        });
+      });
+    }
+
+    function wireForm() {
+      const qInput = document.getElementById('material_q');
+      const results = document.getElementById('materialResults');
+
+      qInput.addEventListener('input', () => {
+        clearTimeout(searchTimer);
+        const q = qInput.value.trim();
+        if (q.length < 2) {
+          results.style.display = 'none';
+          return;
+        }
+        searchTimer = setTimeout(async () => {
+          try {
+            const { data } = await Auth.api('/api/catalogos/materiales?q=' + encodeURIComponent(q));
+            if (!data.length) {
+              results.innerHTML = '<button type="button" disabled>Sin resultados</button>';
+            } else {
+              results.innerHTML = data.map((m) => `
+                <button type="button" data-id="${m.id}" data-codigo="${m.codigo}" data-nombre="${m.nombre}" data-unidad="${m.unidad}" data-precio="${m.precio}">
+                  <strong>${m.codigo}</strong> — ${m.nombre} <small style="color:var(--muted)">(${m.unidad} · stock ${m.stock})</small>
+                </button>
+              `).join('');
+              results.querySelectorAll('button[data-id]').forEach((btn) => {
+                btn.addEventListener('click', () => {
+                  const id = Number(btn.dataset.id);
+                  if (lineItems.some((x) => x.material_id === id)) {
+                    flash('El material ya está en la lista', true);
+                    return;
+                  }
+                  lineItems.push({
+                    material_id: id,
+                    codigo: btn.dataset.codigo,
+                    nombre: btn.dataset.nombre,
+                    unidad: btn.dataset.unidad,
+                    precio: Number(btn.dataset.precio) || 0,
+                    cantidad: 1
+                  });
+                  qInput.value = '';
+                  results.style.display = 'none';
+                  renderLines();
+                });
+              });
+            }
+            results.style.display = 'block';
+          } catch (err) {
+            flash(err.message, true);
+          }
+        }, 250);
+      });
+
+      document.addEventListener('click', (e) => {
+        if (!results.contains(e.target) && e.target !== qInput) results.style.display = 'none';
+      });
+
+      document.getElementById('solicitudForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        if (!lineItems.length) {
+          flash('Agregue al menos un material', true);
+          return;
+        }
+        const btn = document.getElementById('btnCrear');
+        btn.disabled = true;
+        try {
+          const payload = {
+            numero_proyecto: document.getElementById('numero_proyecto').value.trim(),
+            ceco_id: Number(document.getElementById('ceco_id').value),
+            fecha_requerida: document.getElementById('fecha_requerida').value || null,
+            ubicacion_entrega: document.getElementById('ubicacion_entrega').value,
+            bodega_nombre: document.getElementById('bodega_nombre').value || null,
+            quien_retira: document.getElementById('quien_retira').value.trim() || null,
+            quien_usa: document.getElementById('quien_usa').value.trim() || null,
+            observaciones: document.getElementById('observaciones').value.trim() || null,
+            materiales: lineItems.map((i) => ({
+              material_id: i.material_id,
+              cantidad: i.cantidad,
+              unidad: i.unidad,
+              precio_unitario: i.precio
+            }))
+          };
+          const result = await Auth.api('/api/solicitudes', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+          });
+          flash(`Solicitud ${result.data.codigo} creada`);
+          lineItems = [];
+          e.target.reset();
+          renderLines();
+          await refreshList();
+        } catch (err) {
+          flash(err.message, true);
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    }
+
+    function flash(msg, isError) {
+      const el = document.getElementById('flash');
+      if (!el) return;
+      el.innerHTML = `<div class="alert ${isError ? 'alert-error' : 'alert-ok'}">${msg}</div>`;
+      setTimeout(() => { el.innerHTML = ''; }, 4000);
+    }
+
+    if (user) boot();
+  </script>
+</body>
+</html>
