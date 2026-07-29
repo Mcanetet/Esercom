@@ -22,6 +22,21 @@ function toTrash(db, userId, tipo, referenciaId, codigo, titulo, datos) {
   `).run(tipo, referenciaId, codigo || null, titulo || null, JSON.stringify(datos || {}), userId);
 }
 
+function isAdminUser(user) {
+  const rol = String(user?.rol || '').toLowerCase();
+  return user?.rol_id === 1 || rol.includes('admin') || rol.includes('administrador');
+}
+
+function hasUserFlag(user, flag) {
+  return !!user?.[flag] || isAdminUser(user);
+}
+
+function denyUnlessFlag(req, res, flag, message) {
+  if (hasUserFlag(req.auth?.user, flag)) return false;
+  res.status(403).json({ success: false, message: message || 'No tienes permiso para esta acción' });
+  return true;
+}
+
 /* ========== COMPRAS ========== */
 router.get('/compras', (req, res) => {
   const q = String(req.query.q || '').trim();
@@ -387,9 +402,11 @@ router.post('/graficas/:id/estado', (req, res) => {
 /* ========== SERVICIOS GENERALES ========== */
 router.get('/ssgg', (req, res) => {
   const data = req.db.prepare(`
-    SELECT s.*, u.nombre || ' ' || u.apellido AS solicitante
+    SELECT s.*, u.nombre || ' ' || u.apellido AS solicitante,
+           a.nombre || ' ' || a.apellido AS asignado
     FROM servicios_generales s
     LEFT JOIN usuarios u ON u.id = s.solicitante_id
+    LEFT JOIN usuarios a ON a.id = s.asignado_id
     WHERE s.eliminado = 0 ORDER BY s.id DESC
   `).all();
   res.json({ success: true, data });
@@ -403,25 +420,33 @@ router.post('/ssgg', (req, res) => {
   const codigo = nextCode(req.db, 'servicios_generales', 'codigo', 'SSGG-');
   const info = req.db.prepare(`
     INSERT INTO servicios_generales
-      (codigo, categoria, prioridad, titulo, descripcion, ubicacion, fecha_requerida, estado, solicitante_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, 'Abierto', ?)
+      (codigo, categoria, prioridad, titulo, descripcion, ubicacion, fecha_requerida, estado, solicitante_id, asignado_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'Abierto', ?, ?)
   `).run(
     codigo, b.categoria, b.prioridad || 'Media', b.titulo, b.descripcion || null,
-    b.ubicacion || null, b.fecha_requerida || null, req.auth.userId
+    b.ubicacion || null, b.fecha_requerida || null, req.auth.userId,
+    b.asignado_id || null
   );
   res.status(201).json({ success: true, data: { id: info.lastInsertRowid, codigo } });
 });
 
 router.post('/ssgg/:id', (req, res) => {
+  if (denyUnlessFlag(req, res, 'flag_ssgg', 'Solo personal de Servicios Generales puede gestionar tickets')) return;
   const b = req.body || {};
   req.db.prepare(`
     UPDATE servicios_generales
     SET estado = COALESCE(?, estado), fecha_inicio = COALESCE(?, fecha_inicio),
         fecha_termino_estimada = COALESCE(?, fecha_termino_estimada),
         fecha_termino_real = COALESCE(?, fecha_termino_real),
-        prioridad = COALESCE(?, prioridad)
+        prioridad = COALESCE(?, prioridad),
+        asignado_id = COALESCE(?, asignado_id)
     WHERE id = ?
-  `).run(b.estado || null, b.fecha_inicio || null, b.fecha_termino_estimada || null, b.fecha_termino_real || null, b.prioridad || null, Number(req.params.id));
+  `).run(
+    b.estado || null, b.fecha_inicio || null, b.fecha_termino_estimada || null,
+    b.fecha_termino_real || null, b.prioridad || null,
+    b.asignado_id != null ? Number(b.asignado_id) : null,
+    Number(req.params.id)
+  );
   res.json({ success: true });
 });
 
@@ -433,10 +458,15 @@ router.get('/agenda', (req, res) => {
     LEFT JOIN cecos c ON c.id = a.ceco_id
     ORDER BY a.fecha DESC, a.hora_inicio
   `).all();
-  res.json({ success: true, data });
+  res.json({
+    success: true,
+    data,
+    can_manage: hasUserFlag(req.auth?.user, 'flag_camion_pluma')
+  });
 });
 
 router.post('/agenda', (req, res) => {
+  if (denyUnlessFlag(req, res, 'flag_camion_pluma', 'Solo control de agenda (perfil Camión Pluma) puede programar')) return;
   const b = req.body || {};
   if (!b.fecha || !b.empresa) {
     return res.status(400).json({ success: false, message: 'Empresa y fecha requeridos' });
@@ -458,6 +488,7 @@ router.post('/agenda', (req, res) => {
 });
 
 router.post('/agenda/:id/eliminar', (req, res) => {
+  if (denyUnlessFlag(req, res, 'flag_camion_pluma', 'Solo control de agenda puede eliminar servicios')) return;
   req.db.prepare(`DELETE FROM agenda_camion_pluma_v2 WHERE id = ?`).run(Number(req.params.id));
   res.json({ success: true });
 });
@@ -465,30 +496,51 @@ router.post('/agenda/:id/eliminar', (req, res) => {
 /* ========== CHECKLIST FLOTA ========== */
 router.get('/checklist', (req, res) => {
   const data = req.db.prepare(`
-    SELECT c.*, u.nombre || ' ' || u.apellido AS conductor
+    SELECT c.*, u.nombre || ' ' || u.apellido AS conductor,
+           t.nombre || ' ' || t.apellido AS tecnico
     FROM checklist_flota c
     LEFT JOIN usuarios u ON u.id = c.conductor_id
+    LEFT JOIN usuarios t ON t.id = c.tecnico_asignado_id
     WHERE c.anulado = 0 ORDER BY c.fecha DESC, c.id DESC
   `).all();
-  res.json({ success: true, data });
+  res.json({
+    success: true,
+    data,
+    can_create: hasUserFlag(req.auth?.user, 'flag_checklist'),
+    can_assign_flota: hasUserFlag(req.auth?.user, 'flag_flota') || hasUserFlag(req.auth?.user, 'flag_checklist')
+  });
 });
 
 router.post('/checklist', (req, res) => {
+  if (denyUnlessFlag(req, res, 'flag_checklist', 'Solo usuarios de Checklist Flota pueden registrar inspecciones')) return;
   const b = req.body || {};
   if (!b.patente) return res.status(400).json({ success: false, message: 'Patente requerida' });
   const info = req.db.prepare(`
     INSERT INTO checklist_flota
-      (patente, kilometraje, fecha, conductor_id, estado_general, neumaticos, luces, frenos, aceite, documentos, observaciones)
-    VALUES (?, ?, COALESCE(?, date('now')), ?, ?, ?, ?, ?, ?, ?, ?)
+      (patente, kilometraje, fecha, conductor_id, tecnico_asignado_id, estado_general, neumaticos, luces, frenos, aceite, documentos, observaciones)
+    VALUES (?, ?, COALESCE(?, date('now')), ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     b.patente.toUpperCase(), Number(b.kilometraje) || 0, b.fecha || null, req.auth.userId,
+    b.tecnico_asignado_id || null,
     b.estado_general || 'OK', b.neumaticos || 'OK', b.luces || 'OK', b.frenos || 'OK',
     b.aceite || 'OK', b.documentos || 'OK', b.observaciones || null
   );
   res.status(201).json({ success: true, data: { id: info.lastInsertRowid } });
 });
 
+router.post('/checklist/:id/asignar', (req, res) => {
+  if (denyUnlessFlag(req, res, 'flag_flota', 'Solo encargados de flota pueden tomar requerimientos')) return;
+  const tecnicoId = req.body?.tecnico_asignado_id != null
+    ? Number(req.body.tecnico_asignado_id)
+    : req.auth.userId;
+  req.db.prepare(`
+    UPDATE checklist_flota SET tecnico_asignado_id = ? WHERE id = ? AND anulado = 0
+  `).run(tecnicoId, Number(req.params.id));
+  res.json({ success: true });
+});
+
 router.post('/checklist/:id/anular', (req, res) => {
+  if (denyUnlessFlag(req, res, 'flag_checklist', 'No autorizado a anular checklists')) return;
   req.db.prepare(`UPDATE checklist_flota SET anulado = 1 WHERE id = ?`).run(Number(req.params.id));
   res.json({ success: true });
 });
@@ -671,15 +723,92 @@ router.post('/config/usuarios', (req, res) => {
     return res.status(400).json({ success: false, message: 'Nombre, apellido, email y password requeridos' });
   }
   const hash = bcrypt.hashSync(b.password, 10);
-  const info = req.db.prepare(`
-    INSERT INTO usuarios (nombre, apellido, email, password, cargo, rol_id, departamento_id, telefono)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(b.nombre, b.apellido, b.email, hash, b.cargo || null, b.rol_id || 3, b.departamento_id || null, b.telefono || null);
-  res.status(201).json({ success: true, data: { id: info.lastInsertRowid } });
+  const flag = (v) => (v === true || v === 1 || v === '1' ? 1 : 0);
+  try {
+    const info = req.db.prepare(`
+      INSERT INTO usuarios (
+        nombre, apellido, email, password, cargo, rol_id, departamento_id, telefono,
+        flag_checklist, flag_flota, flag_ssgg, flag_camion_pluma, flag_aprobador_salida
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      b.nombre,
+      b.apellido,
+      b.email,
+      hash,
+      b.cargo || null,
+      b.rol_id || 3,
+      b.departamento_id || null,
+      b.telefono || null,
+      flag(b.flag_checklist),
+      flag(b.flag_flota),
+      flag(b.flag_ssgg),
+      flag(b.flag_camion_pluma),
+      flag(b.flag_aprobador_salida)
+    );
+    res.status(201).json({ success: true, data: { id: info.lastInsertRowid } });
+  } catch (err) {
+    if (String(err.message || '').includes('UNIQUE')) {
+      return res.status(400).json({ success: false, message: 'El email ya existe' });
+    }
+    throw err;
+  }
+});
+
+router.post('/config/usuarios/:id', (req, res) => {
+  const bcrypt = require('bcryptjs');
+  const b = req.body || {};
+  const id = Number(req.params.id);
+  const existing = req.db.prepare(`SELECT id FROM usuarios WHERE id = ?`).get(id);
+  if (!existing) return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
+
+  const flag = (v, fallback) => {
+    if (v === undefined) return fallback;
+    return v === true || v === 1 || v === '1' ? 1 : 0;
+  };
+  const cur = req.db.prepare(`SELECT * FROM usuarios WHERE id = ?`).get(id);
+
+  let password = cur.password;
+  if (b.password && String(b.password).trim()) {
+    password = bcrypt.hashSync(String(b.password).trim(), 10);
+  }
+
+  req.db.prepare(`
+    UPDATE usuarios SET
+      nombre = ?, apellido = ?, email = ?, password = ?, cargo = ?,
+      rol_id = ?, departamento_id = ?, telefono = ?,
+      flag_checklist = ?, flag_flota = ?, flag_ssgg = ?,
+      flag_camion_pluma = ?, flag_aprobador_salida = ?,
+      activo = ?
+    WHERE id = ?
+  `).run(
+    b.nombre || cur.nombre,
+    b.apellido || cur.apellido,
+    b.email || cur.email,
+    password,
+    b.cargo !== undefined ? b.cargo : cur.cargo,
+    b.rol_id != null ? Number(b.rol_id) : cur.rol_id,
+    b.departamento_id !== undefined ? (b.departamento_id || null) : cur.departamento_id,
+    b.telefono !== undefined ? b.telefono : cur.telefono,
+    flag(b.flag_checklist, cur.flag_checklist),
+    flag(b.flag_flota, cur.flag_flota),
+    flag(b.flag_ssgg, cur.flag_ssgg),
+    flag(b.flag_camion_pluma, cur.flag_camion_pluma),
+    flag(b.flag_aprobador_salida, cur.flag_aprobador_salida),
+    b.activo === 0 || b.activo === false ? 0 : 1,
+    id
+  );
+  res.json({ success: true, message: 'Usuario actualizado' });
 });
 
 router.get('/config/roles', (req, res) => {
   res.json({ success: true, data: req.db.prepare(`SELECT * FROM roles WHERE activo = 1`).all() });
+});
+
+router.get('/config/departamentos', (req, res) => {
+  res.json({
+    success: true,
+    data: req.db.prepare(`SELECT id, nombre FROM departamentos WHERE activo = 1 ORDER BY nombre`).all()
+  });
 });
 
 /* ========== REPORTES ========== */

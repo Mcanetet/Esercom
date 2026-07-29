@@ -1,7 +1,8 @@
-node_modules/
 data/*.db
 data/*.db-*
+data/reportes/
 .env
 .DS_Store
 uploads/*
 !uploads/.gitkeep
+node_modules/

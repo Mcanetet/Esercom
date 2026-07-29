@@ -117,9 +117,11 @@ CREATE TABLE IF NOT EXISTS servicios_generales (
   fecha_termino_real TEXT,
   estado TEXT DEFAULT 'Abierto',
   solicitante_id INTEGER,
+  asignado_id INTEGER,
   eliminado INTEGER NOT NULL DEFAULT 0,
   fecha_creacion TEXT NOT NULL DEFAULT (datetime('now')),
-  FOREIGN KEY (solicitante_id) REFERENCES usuarios(id)
+  FOREIGN KEY (solicitante_id) REFERENCES usuarios(id),
+  FOREIGN KEY (asignado_id) REFERENCES usuarios(id)
 );
 
 CREATE TABLE IF NOT EXISTS checklist_flota (
@@ -128,6 +130,7 @@ CREATE TABLE IF NOT EXISTS checklist_flota (
   kilometraje INTEGER,
   fecha TEXT NOT NULL DEFAULT (date('now')),
   conductor_id INTEGER,
+  tecnico_asignado_id INTEGER,
   estado_general TEXT DEFAULT 'OK',
   neumaticos TEXT DEFAULT 'OK',
   luces TEXT DEFAULT 'OK',
@@ -137,7 +140,8 @@ CREATE TABLE IF NOT EXISTS checklist_flota (
   observaciones TEXT,
   anulado INTEGER NOT NULL DEFAULT 0,
   fecha_creacion TEXT NOT NULL DEFAULT (datetime('now')),
-  FOREIGN KEY (conductor_id) REFERENCES usuarios(id)
+  FOREIGN KEY (conductor_id) REFERENCES usuarios(id),
+  FOREIGN KEY (tecnico_asignado_id) REFERENCES usuarios(id)
 );
 
 CREATE TABLE IF NOT EXISTS requerimientos_telecom (

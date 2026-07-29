@@ -69,11 +69,13 @@ function formatDate(value) {
 function toggleSidebar() {
   document.getElementById('sidebar')?.classList.toggle('open');
   document.getElementById('sidebarOverlay')?.classList.toggle('show');
+  document.body.classList.toggle('nav-open');
 }
 
 function closeSidebar() {
   document.getElementById('sidebar')?.classList.remove('open');
   document.getElementById('sidebarOverlay')?.classList.remove('show');
+  document.body.classList.remove('nav-open');
 }
 
 function renderShell(activeHref, title, subtitle) {
@@ -97,6 +99,8 @@ function renderShell(activeHref, title, subtitle) {
     { href: '/seguimiento-contratos.html', icon: 'fa-file-contract', label: 'Gestión de Contratos' },
     { href: '/aprobacion-facturas.html', icon: 'fa-file-invoice-dollar', label: 'Aprobación de Facturas' },
     { href: '/reportes.html', icon: 'fa-chart-bar', label: 'Reportes' },
+    { href: '/angel-ia.html', icon: 'fa-robot', label: 'Angel IA' },
+    { href: '/angel-seguridad.html', icon: 'fa-shield-halved', label: 'Seguridad Angel IA' },
     { href: '/configuraciones.html', icon: 'fa-cog', label: 'Configuraciones' },
     { href: '/papelera.html', icon: 'fa-trash-alt', label: 'Papelera' }
   ];
@@ -105,6 +109,8 @@ function renderShell(activeHref, title, subtitle) {
     const active = l.href === activeHref ? 'active' : '';
     return `<a class="${active}" href="${l.href}"><i class="fas ${l.icon}"></i> ${l.label}</a>`;
   }).join('');
+
+  const sub = subtitle ? `<p class="page-subtitle">${subtitle}</p>` : '';
 
   document.body.insertAdjacentHTML('afterbegin', `
     <div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
@@ -125,14 +131,34 @@ function renderShell(activeHref, title, subtitle) {
       </aside>
       <div class="main">
         <header class="top-header">
-          <div>
-            <button class="mobile-toggle" onclick="toggleSidebar()" aria-label="Menú"><i class="fas fa-bars"></i></button>
-            <h1 class="page-title" style="display:inline-flex;margin-left:.5rem">${title}</h1>
-            ${subtitle ? `<p class="page-subtitle">${subtitle}</p>` : ''}
+          <div class="header-left-wrap">
+            <button class="mobile-toggle" type="button" onclick="toggleSidebar()" aria-label="Abrir menú"><i class="fas fa-bars"></i></button>
+            <div>
+              <h1 class="page-title">${title}</h1>
+              ${sub}
+            </div>
           </div>
-          <div class="header-user">
-            <i class="fas fa-user-circle"></i>
-            <span>${user.nombreCompleto || user.email}</span>
+          <div class="header-right-wrap">
+            <div class="header-alerts" id="headerAlerts">
+              <button type="button" class="header-alert-btn" id="alertBellBtn" aria-label="Alertas" title="Mis alertas">
+                <i class="fas fa-bell"></i>
+                <span class="header-alert-badge" id="alertBadge" hidden>0</span>
+              </button>
+              <div class="header-alert-panel" id="alertPanel" hidden>
+                <div class="header-alert-panel-head">
+                  <strong>Mis alertas</strong>
+                  <button type="button" class="linkish" id="alertMarkAll">Marcar todas</button>
+                </div>
+                <div class="header-alert-panel-body" id="alertPanelBody">
+                  <p class="home-empty">Cargando…</p>
+                </div>
+                <a class="header-alert-panel-foot" href="/angel-ia.html">Ver en Angel IA</a>
+              </div>
+            </div>
+            <div class="header-user">
+              <i class="fas fa-user-circle"></i>
+              <span>${user.nombreCompleto || user.email}</span>
+            </div>
           </div>
         </header>
         <div class="content" id="app-content"></div>
@@ -140,7 +166,107 @@ function renderShell(activeHref, title, subtitle) {
     </div>
   `);
 
+  // Cerrar drawer al navegar o al pasar a desktop
+  document.querySelectorAll('.sidebar-nav a').forEach((a) => {
+    a.addEventListener('click', () => closeSidebar());
+  });
+  window.addEventListener('resize', () => {
+    if (window.innerWidth > 900) closeSidebar();
+  });
+
+  initHeaderAlerts();
+  refreshUserSession();
+
   return user;
+}
+
+async function initHeaderAlerts() {
+  const badge = document.getElementById('alertBadge');
+  const panel = document.getElementById('alertPanel');
+  const body = document.getElementById('alertPanelBody');
+  const bell = document.getElementById('alertBellBtn');
+  const markAll = document.getElementById('alertMarkAll');
+  if (!bell || !panel) return;
+
+  async function loadAlerts() {
+    try {
+      const { data } = await Auth.api('/api/angel/alertas?unread=1');
+      const count = data.length;
+      if (badge) {
+        badge.hidden = count === 0;
+        badge.textContent = count > 99 ? '99+' : String(count);
+      }
+      if (!body) return;
+      if (!count) {
+        body.innerHTML = '<p class="home-empty">No tienes alertas pendientes</p>';
+        return;
+      }
+      body.innerHTML = data.slice(0, 20).map((a) => `
+        <button type="button" class="header-alert-item sev-${a.severidad || 'media'}" data-id="${a.id}">
+          <strong>${escapeHtml(a.titulo)}</strong>
+          <span>${escapeHtml(a.mensaje)}</span>
+        </button>
+      `).join('');
+      body.querySelectorAll('[data-id]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          try {
+            await Auth.api('/api/angel/alertas/' + btn.dataset.id + '/leer', { method: 'POST', body: '{}' });
+            loadAlerts();
+          } catch (_) { /* ignore */ }
+        });
+      });
+    } catch (_) {
+      if (body) body.innerHTML = '<p class="home-empty">No se pudieron cargar alertas</p>';
+    }
+  }
+
+  function escapeHtml(s) {
+    return String(s || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  bell.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const open = panel.hasAttribute('hidden');
+    if (open) {
+      panel.removeAttribute('hidden');
+      loadAlerts();
+    } else {
+      panel.setAttribute('hidden', '');
+    }
+  });
+
+  markAll?.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    try {
+      await Auth.api('/api/angel/alertas/leer-todas', { method: 'POST', body: '{}' });
+      loadAlerts();
+    } catch (_) { /* ignore */ }
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!panel.hasAttribute('hidden') && !document.getElementById('headerAlerts')?.contains(e.target)) {
+      panel.setAttribute('hidden', '');
+    }
+  });
+
+  loadAlerts();
+  setInterval(loadAlerts, 60000);
+}
+
+/** Actualiza flags/perfil desde el servidor (Configuraciones) */
+async function refreshUserSession() {
+  try {
+    const data = await Auth.api('/api/auth/me');
+    if (data?.user) {
+      const token = Auth.getToken();
+      Auth.setSession(data.user, token);
+      Object.assign(Auth.getUser() || {}, data.user);
+    }
+  } catch (_) { /* ignore */ }
 }
 
 window.Auth = Auth;
@@ -148,3 +274,5 @@ window.formatDate = formatDate;
 window.toggleSidebar = toggleSidebar;
 window.closeSidebar = closeSidebar;
 window.renderShell = renderShell;
+window.initHeaderAlerts = initHeaderAlerts;
+window.refreshUserSession = refreshUserSession;

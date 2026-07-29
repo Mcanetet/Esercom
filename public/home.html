@@ -2,131 +2,103 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <title>Menú Principal - ESERCOM</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <link href="/css/app.css" rel="stylesheet">
+  <link href="/css/app.css?v=resp1" rel="stylesheet">
 </head>
-<body>
-  <script src="/js/auth.js"></script>
+<body class="page-home">
+  <script src="/js/auth.js?v=resp1"></script>
   <script>
     const user = renderShell(
       '/home.html',
-      '<i class="fas fa-home"></i> Menú Principal',
-      'Acceso rápido a todos los módulos del sistema'
+      '<i class="fas fa-home"></i> Menú Principal'
     );
+
+    const MODULES = [
+      { href: '/solicitud-salida-materiales.html', icon: 'fa-boxes', color: '#0284c7', title: 'Salida de Materiales', group: 'Materiales' },
+      { href: '/salida-material-por-actividad.html', icon: 'fa-layer-group', color: '#0369a1', title: 'Salida por Actividad', group: 'Materiales' },
+      { href: '/materiales-por-receta.html', icon: 'fa-ruler-combined', color: '#0e7490', title: 'Materiales por Receta', group: 'Materiales' },
+      { href: '/portal-proveedores.html', icon: 'fa-dolly-flatbed', color: '#0f766e', title: 'Portal Proveedores', group: 'Materiales' },
+      { href: '/solicitud-de-compras.html', icon: 'fa-shopping-cart', color: '#047857', title: 'Solicitud de Compras', group: 'Compras' },
+      { href: '/creacion-datos-maestros.html', icon: 'fa-database', color: '#0f766e', title: 'Datos Maestros', group: 'Compras' },
+      { href: '/aprobacion-facturas.html', icon: 'fa-file-invoice-dollar', color: '#b45309', title: 'Aprobación de Facturas', group: 'Compras' },
+      { href: '/seguimiento-contratos.html', icon: 'fa-file-contract', color: '#854d0e', title: 'Gestión de Contratos', group: 'Compras' },
+      { href: '/agenda-camion-pluma.html', icon: 'fa-truck-ramp-box', color: '#c2410c', title: 'Agenda Camión Pluma', group: 'Operaciones' },
+      { href: '/checklist-flota.html', icon: 'fa-clipboard-check', color: '#b45309', title: 'Checklist Flota', group: 'Operaciones' },
+      { href: '/tareas-operativas.html', icon: 'fa-tasks', color: '#a16207', title: 'Tareas Operativas', group: 'Operaciones' },
+      { href: '/serviciosgenerales.html', icon: 'fa-tools', color: '#78716c', title: 'Servicios Generales', group: 'Operaciones' },
+      { href: '/solicitud-de-graficas.html', icon: 'fa-image', color: '#1d4ed8', title: 'Solicitud de Gráficas', group: 'Soporte' },
+      { href: '/telecomunicaciones.html', icon: 'fa-satellite-dish', color: '#1e40af', title: 'Telecomunicaciones', group: 'Soporte' },
+      { href: '/reportes.html', icon: 'fa-chart-bar', color: '#334155', title: 'Reportes', group: 'Soporte' },
+      { href: '/angel-ia.html', icon: 'fa-robot', color: '#0284c7', title: 'Angel IA', group: 'Soporte' },
+      { href: '/angel-seguridad.html', icon: 'fa-shield-halved', color: '#0f172a', title: 'Seguridad Angel IA', group: 'Soporte' },
+      { href: '/configuraciones.html', icon: 'fa-cog', color: '#475569', title: 'Configuraciones', group: 'Soporte' },
+      { href: '/papelera.html', icon: 'fa-trash-alt', color: '#64748b', title: 'Papelera', group: 'Soporte' }
+    ];
 
     async function loadDashboard() {
       const content = document.getElementById('app-content');
       try {
         const { data } = await Auth.api('/api/catalogos/dashboard');
-        content.innerHTML = `
-          <div class="stats-grid">
-            <div class="stat-card">
-              <div class="icon" style="background:linear-gradient(135deg,#f59e0b,#fbbf24)"><i class="fas fa-clock"></i></div>
-              <div class="stat-label">Solicitudes activas</div>
-              <div class="stat-value">${data.pendientes}</div>
-            </div>
-            <div class="stat-card">
-              <div class="icon" style="background:linear-gradient(135deg,#22c55e,#4ade80)"><i class="fas fa-check-circle"></i></div>
-              <div class="stat-label">Cerradas</div>
-              <div class="stat-value">${data.cerradas}</div>
-            </div>
-            <div class="stat-card">
-              <div class="icon" style="background:linear-gradient(135deg,#0ea5e9,#38bdf8)"><i class="fas fa-boxes"></i></div>
-              <div class="stat-label">Materiales</div>
-              <div class="stat-value">${data.materiales}</div>
-            </div>
-            <div class="stat-card">
-              <div class="icon" style="background:linear-gradient(135deg,#6366f1,#818cf8)"><i class="fas fa-users"></i></div>
-              <div class="stat-label">Usuarios</div>
-              <div class="stat-value">${data.usuarios}</div>
-            </div>
-          </div>
+        const empresa = data.empresa?.name || data.empresa?.razonSocial || user.empresaNombre || '';
+        const nombre = (user.nombre || user.nombreCompleto || 'Usuario').split(' ')[0];
 
-          <div class="card">
-            <div class="card-header">
-              <h2><i class="fas fa-th-large" style="color:var(--accent);margin-right:.4rem"></i> Módulos Disponibles</h2>
-              <small style="color:var(--muted)">${data.empresa.razonSocial}</small>
-            </div>
-            <div class="card-body">
-              <div class="module-grid">
-                <a class="module-card" href="/solicitud-salida-materiales.html">
-                  <div class="module-icon" style="background:linear-gradient(135deg,#2563eb,#60a5fa)"><i class="fas fa-boxes"></i></div>
-                  <div><h6>Solicitud de Salida de Materiales</h6><p>Crear y gestionar entregas desde bodega.</p></div>
-                </a>
-                <a class="module-card" href="/salida-material-por-actividad.html">
-                  <div class="module-icon" style="background:linear-gradient(135deg,#7c3aed,#a78bfa)"><i class="fas fa-layer-group"></i></div>
-                  <div><h6>Salida Material por Actividad</h6><p>Recetas y cantidades por tipo de obra.</p></div>
-                </a>
-                <a class="module-card" href="/portal-proveedores.html">
-                  <div class="module-icon" style="background:linear-gradient(135deg,#0891b2,#22d3ee)"><i class="fas fa-dolly-flatbed"></i></div>
-                  <div><h6>Portal Proveedores</h6><p>Guías y facturas de despacho.</p></div>
-                </a>
-                <a class="module-card" href="/solicitud-de-compras.html">
-                  <div class="module-icon" style="background:linear-gradient(135deg,#059669,#34d399)"><i class="fas fa-shopping-cart"></i></div>
-                  <div><h6>Solicitud de Compras</h6><p>Requerimientos y aprobación de compra.</p></div>
-                </a>
-                <a class="module-card" href="/agenda-camion-pluma.html">
-                  <div class="module-icon" style="background:linear-gradient(135deg,#ea580c,#fb923c)"><i class="fas fa-truck-ramp-box"></i></div>
-                  <div><h6>Agenda Camión Pluma</h6><p>Servicios y bloqueos programados.</p></div>
-                </a>
-                <a class="module-card" href="/reportes.html">
-                  <div class="module-icon" style="background:linear-gradient(135deg,#475569,#94a3b8)"><i class="fas fa-chart-bar"></i></div>
-                  <div><h6>Reportes</h6><p>Consultas y exportación CSV.</p></div>
-                </a>
-                <a class="module-card" href="/materiales-por-receta.html">
-                  <div class="module-icon" style="background:linear-gradient(135deg,#4f46e5,#818cf8)"><i class="fas fa-ruler-combined"></i></div>
-                  <div><h6>Materiales por Receta</h6><p>Configurar insumos por tipo de obra.</p></div>
-                </a>
-                <a class="module-card" href="/checklist-flota.html">
-                  <div class="module-icon" style="background:linear-gradient(135deg,#0d9488,#2dd4bf)"><i class="fas fa-clipboard-check"></i></div>
-                  <div><h6>Checklist Flota</h6><p>Inspección diaria de vehículos.</p></div>
-                </a>
-                <a class="module-card" href="/configuraciones.html">
-                  <div class="module-icon" style="background:linear-gradient(135deg,#334155,#64748b)"><i class="fas fa-cog"></i></div>
-                  <div><h6>Configuraciones</h6><p>Usuarios, CECOs, materiales y más.</p></div>
-                </a>
+        const byGroup = {};
+        MODULES.forEach((m) => {
+          if (!byGroup[m.group]) byGroup[m.group] = [];
+          byGroup[m.group].push(m);
+        });
+
+        content.innerHTML = `
+          <div class="home">
+            <div class="home-bar">
+              <div>
+                <div class="home-bar-brand">ESERCOM · ${empresa}</div>
+                <div class="home-bar-hello">Hola, ${nombre}</div>
+              </div>
+              <div class="home-bar-stats">
+                <div><b>${data.pendientes}</b><span>Activas</span></div>
+                <div><b>${data.cerradas}</b><span>Cerradas</span></div>
+                <div><b>${data.materiales}</b><span>Materiales</span></div>
               </div>
             </div>
-          </div>
 
-          <div class="card">
-            <div class="card-header">
-              <h2><i class="fas fa-history" style="color:var(--accent);margin-right:.4rem"></i> Solicitudes recientes</h2>
-              <a class="btn btn-primary btn-sm" href="/solicitud-salida-materiales.html"><i class="fas fa-plus"></i> Nueva</a>
+            <div class="home-find">
+              <i class="fas fa-search"></i>
+              <input type="search" id="moduleSearch" placeholder="Buscar módulo…" autocomplete="off">
             </div>
-            <div class="card-body table-wrap">
-              ${data.recientes.length === 0 ? '<div class="empty">Sin solicitudes aún</div>' : `
-                <table class="data">
-                  <thead>
-                    <tr>
-                      <th>Código</th>
-                      <th>Proyecto</th>
-                      <th>Solicitante</th>
-                      <th>Fecha</th>
-                      <th>Estado</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${data.recientes.map((r) => `
-                      <tr>
-                        <td><strong>${r.codigo}</strong></td>
-                        <td>${r.numero_proyecto || '—'}</td>
-                        <td>${r.solicitante}</td>
-                        <td>${formatDate(r.fecha_solicitud)}</td>
-                        <td><span class="badge" style="background:${r.color}">${r.estado}</span></td>
-                        <td><a class="btn btn-outline btn-sm" href="/ver-solicitud.html?id=${r.id}">Ver</a></td>
-                      </tr>
+
+            <div id="moduleGroups">
+              ${Object.entries(byGroup).map(([group, items]) => `
+                <section class="home-section" data-group>
+                  <h3 class="home-section-title">${group}</h3>
+                  <div class="home-tiles">
+                    ${items.map((m) => `
+                      <a class="home-tile" href="${m.href}" data-module data-q="${(m.title + ' ' + m.group).toLowerCase()}">
+                        <span class="home-tile-icon" style="background:${m.color}"><i class="fas ${m.icon}"></i></span>
+                        <span class="home-tile-title">${m.title}</span>
+                      </a>
                     `).join('')}
-                  </tbody>
-                </table>
-              `}
+                  </div>
+                </section>
+              `).join('')}
             </div>
           </div>
         `;
+
+        document.getElementById('moduleSearch').addEventListener('input', (e) => {
+          const q = e.target.value.trim().toLowerCase();
+          document.querySelectorAll('[data-module]').forEach((el) => {
+            el.style.display = !q || el.dataset.q.includes(q) ? '' : 'none';
+          });
+          document.querySelectorAll('[data-group]').forEach((g) => {
+            const any = [...g.querySelectorAll('[data-module]')].some((el) => el.style.display !== 'none');
+            g.style.display = any ? '' : 'none';
+          });
+        });
       } catch (err) {
         content.innerHTML = `<div class="alert alert-error">${err.message}</div>`;
       }

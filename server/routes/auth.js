@@ -47,6 +47,7 @@ router.post('/login', (req, res) => {
     const user = db.prepare(`
       SELECT u.id, u.nombre, u.apellido, u.email, u.password, u.cargo, u.rol_id,
              u.departamento_id, u.fecha_creacion, u.telefono,
+             u.flag_checklist, u.flag_flota, u.flag_ssgg, u.flag_camion_pluma, u.flag_aprobador_salida,
              r.nombre AS rol, r.paginas_permitidas, d.nombre AS departamento
       FROM usuarios u
       LEFT JOIN roles r ON r.id = u.rol_id
@@ -89,7 +90,12 @@ router.post('/login', (req, res) => {
       paginas_permitidas: paginas,
       empresa: company.slug,
       empresaNombre: company.name,
-      empresaRazonSocial: company.razonSocial
+      empresaRazonSocial: company.razonSocial,
+      flag_checklist: !!user.flag_checklist,
+      flag_flota: !!user.flag_flota,
+      flag_ssgg: !!user.flag_ssgg,
+      flag_camion_pluma: !!user.flag_camion_pluma,
+      flag_aprobador_salida: !!user.flag_aprobador_salida
     };
 
     return res.json({

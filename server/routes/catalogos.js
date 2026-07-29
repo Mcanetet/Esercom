@@ -52,13 +52,28 @@ router.get('/estados', (req, res) => {
 });
 
 router.get('/usuarios', (req, res) => {
-  const rows = req.db.prepare(`
-    SELECT u.id, u.nombre, u.apellido, u.email, u.cargo, r.nombre AS rol
+  const flag = String(req.query.flag || '').trim();
+  const allowed = {
+    checklist: 'flag_checklist',
+    flota: 'flag_flota',
+    ssgg: 'flag_ssgg',
+    camion_pluma: 'flag_camion_pluma',
+    aprobador_salida: 'flag_aprobador_salida'
+  };
+  let sql = `
+    SELECT u.id, u.nombre, u.apellido, u.email, u.cargo, u.telefono, u.rol_id, u.departamento_id,
+           u.flag_checklist, u.flag_flota, u.flag_ssgg, u.flag_camion_pluma, u.flag_aprobador_salida,
+           r.nombre AS rol, d.nombre AS departamento
     FROM usuarios u
     LEFT JOIN roles r ON r.id = u.rol_id
+    LEFT JOIN departamentos d ON d.id = u.departamento_id
     WHERE u.activo = 1
-    ORDER BY u.nombre
-  `).all();
+  `;
+  if (flag && allowed[flag]) {
+    sql += ` AND u.${allowed[flag]} = 1`;
+  }
+  sql += ' ORDER BY u.nombre, u.apellido';
+  const rows = req.db.prepare(sql).all();
   res.json({ success: true, data: rows });
 });
 

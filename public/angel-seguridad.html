@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Seguridad Angel IA - ESERCOM</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <link href="/css/app.css?v=resp1" rel="stylesheet">
+</head>
+<body>
+  <script src="/js/auth.js?v=resp1"></script>
+  <script src="/js/ui.js?v=resp1"></script>
+  <script>
+    const user = renderShell('/angel-seguridad.html', '<i class="fas fa-shield-halved"></i> Seguridad Angel IA', 'Configuración cifrada de API OpenAI (solo administradores)');
+
+    async function boot() {
+      const content = document.getElementById('app-content');
+      const rol = String(user.rol || '').toLowerCase();
+      if (!rol.includes('admin') && user.rol_id !== 1) {
+        content.innerHTML = `<div class="alert alert-error">Acceso denegado. Solo administradores pueden gestionar la API key.</div>
+          <a class="btn btn-secondary" href="/angel-ia.html">Volver a Angel IA</a>`;
+        return;
+      }
+
+      try {
+        const { data } = await Auth.api('/api/angel/seguridad');
+        content.innerHTML = `
+          <div id="flash"></div>
+          <div class="card" style="max-width:720px">
+            <div class="card-header">
+              <h2><i class="fas fa-lock" style="color:var(--accent)"></i> Acceso OpenAI</h2>
+              <span class="badge" style="background:${data.activo && data.configurado ? '#22c55e' : '#f59e0b'}">
+                ${data.configurado ? (data.hint || 'Configurada') : 'Sin key'}
+              </span>
+            </div>
+            <div class="card-body">
+              <p style="color:var(--muted);font-size:.9rem;margin-top:0">
+                La API key se almacena <strong>cifrada (AES-256-GCM)</strong> en la base de la empresa y
+                <strong>nunca</strong> se expone al navegador después de guardarla.
+              </p>
+              <form id="secForm">
+                <div class="form-group">
+                  <label>API Key OpenAI ${data.hint ? '(deja vacío para mantener ' + data.hint + ')' : ''}</label>
+                  <input type="password" id="api_key" placeholder="sk-..." autocomplete="off">
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>Modelo</label>
+                    <select id="model">
+                      ${['gpt-4o-mini','gpt-4o','gpt-4.1-mini','gpt-4.1'].map((m) =>
+                        `<option ${m === data.model ? 'selected' : ''}>${m}</option>`).join('')}
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label>Estado</label>
+                    <select id="activo">
+                      <option value="1" ${data.activo ? 'selected' : ''}>Activo</option>
+                      <option value="0" ${!data.activo ? 'selected' : ''}>Inactivo</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>Reporte semanal a JP</label>
+                    <select id="reporte_semanal">
+                      <option value="1" ${data.reporte_semanal ? 'selected' : ''}>Activado</option>
+                      <option value="0" ${!data.reporte_semanal ? 'selected' : ''}>Desactivado</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label>Día envío (0=Dom … 1=Lun)</label>
+                    <input type="number" id="dia_reporte" min="0" max="6" value="${data.dia_reporte}">
+                  </div>
+                </div>
+                <hr style="border:none;border-top:1px solid var(--border);margin:1.25rem 0">
+                <h3 style="margin:0 0 .75rem;font-size:.95rem">SMTP opcional (avisos por correo)</h3>
+                <div class="form-row">
+                  <div class="form-group"><label>Host</label><input id="smtp_host" value="${data.smtp_host || ''}"></div>
+                  <div class="form-group"><label>Puerto</label><input type="number" id="smtp_port" value="${data.smtp_port || 587}"></div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group"><label>Usuario</label><input id="smtp_user" value="${data.smtp_user || ''}"></div>
+                  <div class="form-group"><label>Password SMTP</label><input type="password" id="smtp_pass" placeholder="${data.tiene_smtp_pass ? '•••• (sin cambio)' : ''}"></div>
+                </div>
+                <div class="form-group"><label>From</label><input id="smtp_from" value="${data.smtp_from || ''}" placeholder="angelia@tuempresa.cl"></div>
+
+                <div class="toolbar" style="margin-top:1rem">
+                  <button class="btn btn-primary" type="submit"><i class="fas fa-save"></i> Guardar</button>
+                  <button class="btn btn-secondary" type="button" id="btnTest"><i class="fas fa-plug"></i> Probar API</button>
+                  <button class="btn btn-danger" type="button" id="btnClear"><i class="fas fa-trash"></i> Borrar API key</button>
+                  <a class="btn btn-outline" href="/angel-ia.html">Ir a Angel IA</a>
+                </div>
+              </form>
+            </div>
+          </div>
+        `;
+
+        secForm.onsubmit = async (e) => {
+          e.preventDefault();
+          try {
+            await Auth.api('/api/angel/seguridad', {
+              method: 'POST',
+              body: JSON.stringify({
+                api_key: api_key.value.trim() || undefined,
+                model: model.value,
+                activo: Number(activo.value),
+                reporte_semanal: Number(reporte_semanal.value),
+                dia_reporte: Number(dia_reporte.value),
+                smtp_host: smtp_host.value || null,
+                smtp_port: Number(smtp_port.value) || 587,
+                smtp_user: smtp_user.value || null,
+                smtp_pass: smtp_pass.value || undefined,
+                smtp_from: smtp_from.value || null
+              })
+            });
+            UI.flash('Configuración guardada de forma segura');
+            api_key.value = '';
+            setTimeout(boot, 600);
+          } catch (err) { UI.flash(err.message, true); }
+        };
+
+        btnTest.onclick = async () => {
+          try {
+            const r = await Auth.api('/api/angel/seguridad/probar', { method: 'POST', body: '{}' });
+            UI.flash(r.message + (r.data?.reply ? ': ' + r.data.reply : ''));
+          } catch (err) { UI.flash(err.message, true); }
+        };
+
+        btnClear.onclick = async () => {
+          if (!confirm('¿Eliminar la API key cifrada?')) return;
+          await Auth.api('/api/angel/seguridad', {
+            method: 'POST',
+            body: JSON.stringify({ limpiar_api_key: true, activo: 0 })
+          });
+          UI.flash('API key eliminada');
+          boot();
+        };
+      } catch (e) {
+        content.innerHTML = `<div class="alert alert-error">${e.message}</div>`;
+      }
+    }
+
+    if (user) boot();
+  </script>
+</body>
+</html>

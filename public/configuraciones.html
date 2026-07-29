@@ -2,26 +2,72 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Configuraciones - ESERCOM</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <link href="/css/app.css" rel="stylesheet">
+  <link href="/css/app.css?v=resp1" rel="stylesheet">
 </head>
 <body>
-  <script src="/js/auth.js"></script>
-  <script src="/js/ui.js"></script>
+  <script src="/js/auth.js?v=resp1"></script>
+  <script src="/js/ui.js?v=resp1"></script>
   <script>
-    const user = renderShell('/configuraciones.html', '<i class="fas fa-cog"></i> Configuraciones', 'Maestros del sistema');
+    const user = renderShell('/configuraciones.html', '<i class="fas fa-cog"></i> Configuraciones', 'Maestros y perfiles operativos');
+
+    const FLAG_LABELS = [
+      { key: 'flag_checklist', label: 'Checklist Flota', hint: 'Puede registrar checklists de vehículos' },
+      { key: 'flag_flota', label: 'Encargado de Flota', hint: 'Aparece para tomar requerimientos de flota' },
+      { key: 'flag_ssgg', label: 'Servicios Generales', hint: 'Personal de mantención / SSGG' },
+      { key: 'flag_camion_pluma', label: 'Control Agenda Camión Pluma', hint: 'Puede modificar la agenda (perfil tipo Edith Gómez)' },
+      { key: 'flag_aprobador_salida', label: 'Aprobador Salida Materiales', hint: 'Puede aprobar/modificar salidas especiales' }
+    ];
+
+    function flagsHtml(prefix, values = {}) {
+      return `<div class="user-flags">
+        ${FLAG_LABELS.map((f) => `
+          <label class="user-flag">
+            <input type="checkbox" id="${prefix}_${f.key}" ${values[f.key] ? 'checked' : ''}>
+            <span>
+              <strong>${f.label}</strong>
+              <small>${f.hint}</small>
+            </span>
+          </label>
+        `).join('')}
+      </div>`;
+    }
+
+    function readFlags(prefix) {
+      const out = {};
+      FLAG_LABELS.forEach((f) => {
+        out[f.key] = !!document.getElementById(`${prefix}_${f.key}`)?.checked;
+      });
+      return out;
+    }
+
+    function chips(u) {
+      const parts = [];
+      if (u.flag_checklist) parts.push('<span class="chip">Checklist</span>');
+      if (u.flag_flota) parts.push('<span class="chip chip-flota">Flota</span>');
+      if (u.flag_ssgg) parts.push('<span class="chip chip-ssgg">SSGG</span>');
+      if (u.flag_camion_pluma) parts.push('<span class="chip chip-camion">Camión Pluma</span>');
+      if (u.flag_aprobador_salida) parts.push('<span class="chip chip-aprob">Aprob. Salida</span>');
+      return parts.join(' ') || '<span style="color:var(--muted)">—</span>';
+    }
+
     async function boot() {
       const content = document.getElementById('app-content');
       try {
-        const [resumen, cecos, mats, provs, users, roles] = await Promise.all([
+        const [resumen, cecos, mats, provs, users, roles, depts] = await Promise.all([
           Auth.api('/api/modulos/config/resumen'),
-          UI.loadCecos(), UI.loadMateriales(), UI.loadProveedores(), UI.loadUsuarios(),
-          Auth.api('/api/modulos/config/roles')
+          UI.loadCecos(),
+          UI.loadMateriales(),
+          UI.loadProveedores(),
+          UI.loadUsuarios(),
+          Auth.api('/api/modulos/config/roles'),
+          Auth.api('/api/modulos/config/departamentos')
         ]);
         const s = resumen.data;
+
         content.innerHTML = `
           <div id="flash"></div>
           <div class="stats-grid">
@@ -30,6 +76,88 @@
             <div class="stat-card"><div class="stat-label">Materiales</div><div class="stat-value">${s.materiales}</div></div>
             <div class="stat-card"><div class="stat-label">Proveedores</div><div class="stat-value">${s.proveedores}</div></div>
           </div>
+
+          <div class="card">
+            <div class="card-header"><h2>Usuarios y perfiles operativos</h2></div>
+            <div class="card-body">
+              <form id="userForm">
+                <div class="form-row cols-3">
+                  <div class="form-group"><label>Nombre *</label><input id="uNombre" required></div>
+                  <div class="form-group"><label>Apellido *</label><input id="uApellido" required></div>
+                  <div class="form-group"><label>Email *</label><input type="email" id="uEmail" required></div>
+                </div>
+                <div class="form-row cols-3">
+                  <div class="form-group"><label>Password *</label><input type="password" id="uPass" required></div>
+                  <div class="form-group"><label>Cargo</label><input id="uCargo" placeholder="Ej: Encargado de Flota"></div>
+                  <div class="form-group"><label>Teléfono</label><input id="uTelefono"></div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group"><label>Rol</label><select id="uRol">${UI.optionList(roles.data,'id',x=>x.nombre)}</select></div>
+                  <div class="form-group"><label>Departamento</label>
+                    <select id="uDept"><option value="">—</option>${UI.optionList(depts.data,'id',x=>x.nombre)}</select>
+                  </div>
+                </div>
+                <h3 class="flags-title">Atributos / visibilidad en módulos</h3>
+                <p class="flags-help">Marca quién aparece para checklist, requerimientos de flota, SSGG, control de agenda camión pluma y aprobación de salidas.</p>
+                ${flagsHtml('new')}
+                <button class="btn btn-primary" type="submit" style="margin-top:1rem"><i class="fas fa-user-plus"></i> Crear usuario</button>
+              </form>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header"><h2>Usuarios (${users.length})</h2></div>
+            <div class="card-body table-wrap">
+              <table class="data">
+                <thead>
+                  <tr>
+                    <th>Nombre</th><th>Email</th><th>Cargo</th><th>Rol</th><th>Atributos</th><th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${users.map((u) => `
+                    <tr>
+                      <td><strong>${u.nombre} ${u.apellido}</strong></td>
+                      <td>${u.email}</td>
+                      <td>${u.cargo || '—'}</td>
+                      <td>${u.rol || '—'}</td>
+                      <td>${chips(u)}</td>
+                      <td><button type="button" class="btn btn-outline btn-sm" data-edit='${JSON.stringify(u).replace(/'/g, '&#39;')}'>Editar</button></td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="card" id="editCard" hidden>
+            <div class="card-header"><h2>Editar usuario</h2><button type="button" class="btn btn-secondary btn-sm" id="btnCloseEdit">Cerrar</button></div>
+            <div class="card-body">
+              <form id="editForm">
+                <input type="hidden" id="eId">
+                <div class="form-row cols-3">
+                  <div class="form-group"><label>Nombre</label><input id="eNombre" required></div>
+                  <div class="form-group"><label>Apellido</label><input id="eApellido" required></div>
+                  <div class="form-group"><label>Email</label><input type="email" id="eEmail" required></div>
+                </div>
+                <div class="form-row cols-3">
+                  <div class="form-group"><label>Nueva password (opcional)</label><input type="password" id="ePass"></div>
+                  <div class="form-group"><label>Cargo</label><input id="eCargo"></div>
+                  <div class="form-group"><label>Teléfono</label><input id="eTelefono"></div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group"><label>Rol</label><select id="eRol">${UI.optionList(roles.data,'id',x=>x.nombre)}</select></div>
+                  <div class="form-group"><label>Departamento</label>
+                    <select id="eDept"><option value="">—</option>${UI.optionList(depts.data,'id',x=>x.nombre)}</select>
+                  </div>
+                </div>
+                <h3 class="flags-title">Atributos operativos</h3>
+                ${flagsHtml('edit')}
+                <button class="btn btn-primary" type="submit" style="margin-top:1rem">Guardar cambios</button>
+              </form>
+            </div>
+          </div>
+
           <div class="card"><div class="card-header"><h2>Nuevo material</h2></div><div class="card-body">
             <form id="matForm" class="toolbar">
               <input id="mCodigo" placeholder="Código" required>
@@ -55,34 +183,114 @@
               <button class="btn btn-primary" type="submit">Guardar</button>
             </form>
           </div></div>
-          <div class="card"><div class="card-header"><h2>Nuevo usuario</h2></div><div class="card-body">
-            <form id="userForm">
-              <div class="form-row cols-3">
-                <div class="form-group"><label>Nombre</label><input id="uNombre" required></div>
-                <div class="form-group"><label>Apellido</label><input id="uApellido" required></div>
-                <div class="form-group"><label>Email</label><input type="email" id="uEmail" required></div>
-              </div>
-              <div class="form-row cols-3">
-                <div class="form-group"><label>Password</label><input type="password" id="uPass" required></div>
-                <div class="form-group"><label>Cargo</label><input id="uCargo"></div>
-                <div class="form-group"><label>Rol</label><select id="uRol">${UI.optionList(roles.data,'id',x=>x.nombre)}</select></div>
-              </div>
-              <button class="btn btn-primary" type="submit">Crear usuario</button>
-            </form>
-          </div></div>
-          <div class="card"><div class="card-header"><h2>Usuarios (${users.length})</h2></div>
-            <div class="card-body table-wrap"><table class="data"><thead><tr><th>Nombre</th><th>Email</th><th>Cargo</th><th>Rol</th></tr></thead>
-            <tbody>${users.map(u=>`<tr><td>${u.nombre} ${u.apellido}</td><td>${u.email}</td><td>${u.cargo||'—'}</td><td>${u.rol||'—'}</td></tr>`).join('')}</tbody></table></div></div>
-          <div class="card"><div class="card-header"><h2>Materiales (${mats.length})</h2></div>
-            <div class="card-body table-wrap"><table class="data"><thead><tr><th>Código</th><th>Nombre</th><th>Unidad</th><th>Precio</th><th>Stock</th></tr></thead>
-            <tbody>${mats.slice(0,50).map(m=>`<tr><td>${m.codigo}</td><td>${m.nombre}</td><td>${m.unidad}</td><td>${m.precio}</td><td>${m.stock}</td></tr>`).join('')}</tbody></table></div></div>`;
+        `;
 
-        matForm.onsubmit = async (e)=>{ e.preventDefault(); try{ await Auth.api('/api/modulos/config/materiales',{method:'POST',body:JSON.stringify({codigo:mCodigo.value,nombre:mNombre.value,unidad:mUnidad.value,precio:Number(mPrecio.value)||0,stock:Number(mStock.value)||0})}); UI.flash('Material creado'); boot(); }catch(err){UI.flash(err.message,true);} };
-        cecoForm.onsubmit = async (e)=>{ e.preventDefault(); try{ await Auth.api('/api/modulos/config/cecos',{method:'POST',body:JSON.stringify({codigo:cCodigo.value,nombre:cNombre.value})}); UI.flash('CECO creado'); boot(); }catch(err){UI.flash(err.message,true);} };
-        provForm.onsubmit = async (e)=>{ e.preventDefault(); try{ await Auth.api('/api/modulos/config/proveedores',{method:'POST',body:JSON.stringify({razon_social:pRazon.value,rut:pRut.value,email:pEmail.value||null})}); UI.flash('Proveedor creado'); boot(); }catch(err){UI.flash(err.message,true);} };
-        userForm.onsubmit = async (e)=>{ e.preventDefault(); try{ await Auth.api('/api/modulos/config/usuarios',{method:'POST',body:JSON.stringify({nombre:uNombre.value,apellido:uApellido.value,email:uEmail.value,password:uPass.value,cargo:uCargo.value||null,rol_id:Number(uRol.value)})}); UI.flash('Usuario creado'); boot(); }catch(err){UI.flash(err.message,true);} };
-      } catch(e){ content.innerHTML=`<div class="alert alert-error">${e.message}</div>`; }
+        userForm.onsubmit = async (e) => {
+          e.preventDefault();
+          try {
+            await Auth.api('/api/modulos/config/usuarios', {
+              method: 'POST',
+              body: JSON.stringify({
+                nombre: uNombre.value,
+                apellido: uApellido.value,
+                email: uEmail.value,
+                password: uPass.value,
+                cargo: uCargo.value || null,
+                telefono: uTelefono.value || null,
+                rol_id: Number(uRol.value),
+                departamento_id: uDept.value ? Number(uDept.value) : null,
+                ...readFlags('new')
+              })
+            });
+            UI.flash('Usuario creado');
+            boot();
+          } catch (err) { UI.flash(err.message, true); }
+        };
+
+        document.querySelectorAll('[data-edit]').forEach((btn) => {
+          btn.onclick = () => {
+            const u = JSON.parse(btn.getAttribute('data-edit'));
+            editCard.hidden = false;
+            eId.value = u.id;
+            eNombre.value = u.nombre;
+            eApellido.value = u.apellido;
+            eEmail.value = u.email;
+            eCargo.value = u.cargo || '';
+            eTelefono.value = u.telefono || '';
+            eRol.value = String(u.rol_id || '');
+            eDept.value = u.departamento_id ? String(u.departamento_id) : '';
+            ePass.value = '';
+            FLAG_LABELS.forEach((f) => {
+              const el = document.getElementById('edit_' + f.key);
+              if (el) el.checked = !!u[f.key];
+            });
+            editCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          };
+        });
+
+        btnCloseEdit.onclick = () => { editCard.hidden = true; };
+
+        editForm.onsubmit = async (e) => {
+          e.preventDefault();
+          try {
+            const payload = {
+              nombre: eNombre.value,
+              apellido: eApellido.value,
+              email: eEmail.value,
+              cargo: eCargo.value || null,
+              telefono: eTelefono.value || null,
+              rol_id: Number(eRol.value),
+              departamento_id: eDept.value ? Number(eDept.value) : null,
+              ...readFlags('edit')
+            };
+            if (ePass.value.trim()) payload.password = ePass.value.trim();
+            await Auth.api('/api/modulos/config/usuarios/' + eId.value, {
+              method: 'POST',
+              body: JSON.stringify(payload)
+            });
+            UI.flash('Usuario actualizado');
+            boot();
+          } catch (err) { UI.flash(err.message, true); }
+        };
+
+        matForm.onsubmit = async (e) => {
+          e.preventDefault();
+          try {
+            await Auth.api('/api/modulos/config/materiales', {
+              method: 'POST',
+              body: JSON.stringify({
+                codigo: mCodigo.value, nombre: mNombre.value, unidad: mUnidad.value,
+                precio: Number(mPrecio.value) || 0, stock: Number(mStock.value) || 0
+              })
+            });
+            UI.flash('Material creado'); boot();
+          } catch (err) { UI.flash(err.message, true); }
+        };
+        cecoForm.onsubmit = async (e) => {
+          e.preventDefault();
+          try {
+            await Auth.api('/api/modulos/config/cecos', {
+              method: 'POST',
+              body: JSON.stringify({ codigo: cCodigo.value, nombre: cNombre.value })
+            });
+            UI.flash('CECO creado'); boot();
+          } catch (err) { UI.flash(err.message, true); }
+        };
+        provForm.onsubmit = async (e) => {
+          e.preventDefault();
+          try {
+            await Auth.api('/api/modulos/config/proveedores', {
+              method: 'POST',
+              body: JSON.stringify({ razon_social: pRazon.value, rut: pRut.value, email: pEmail.value || null })
+            });
+            UI.flash('Proveedor creado'); boot();
+          } catch (err) { UI.flash(err.message, true); }
+        };
+      } catch (e) {
+        content.innerHTML = `<div class="alert alert-error">${e.message}</div>`;
+      }
     }
+
     if (user) boot();
   </script>
 </body>

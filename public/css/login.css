@@ -326,9 +326,32 @@ body {
 }
 .theme-toggle:hover { color: var(--login-accent); }
 
-@media (max-width: 480px) {
-  .login-card { padding: 1.75rem 1.25rem; }
-  .company-chips { grid-template-columns: repeat(3, 1fr); }
-  .company-chip:nth-child(4),
-  .company-chip:nth-child(5) { grid-column: span 1; }
+@media (max-width: 640px) {
+  .login-container {
+    max-width: 100%;
+  }
+  .login-card {
+    padding: 1.5rem 1.1rem;
+    border-radius: 14px;
+  }
+  .login-title {
+    font-size: 1.3rem;
+  }
+  .company-chips {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .btn-login {
+    min-height: 48px;
+  }
+  .theme-toggle {
+    top: 0.65rem;
+    right: 0.65rem;
+    width: 40px;
+    height: 40px;
+  }
+}
+@media (max-width: 380px) {
+  .company-chips {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }

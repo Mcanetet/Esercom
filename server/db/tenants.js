@@ -1,11 +1,12 @@
 const fs = require('fs');
 const path = require('path');
-const Database = require('better-sqlite3');
 const bcrypt = require('bcryptjs');
 const config = require('../config');
+const { Database, initEngine } = require('./sqlite');
 
 const schemaSql = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
 const schemaModulesSql = fs.readFileSync(path.join(__dirname, 'schema-modules.sql'), 'utf8');
+const schemaAngelSql = fs.readFileSync(path.join(__dirname, 'schema-angel.sql'), 'utf8');
 
 const connections = new Map();
 
@@ -23,9 +24,39 @@ function openDb(slug) {
   ensureDataDir();
   const file = dbPathFor(slug);
   const db = new Database(file);
-  db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   return db;
+}
+
+function migrateUserFlags(db) {
+  const cols = db.prepare(`PRAGMA table_info(usuarios)`).all().map((c) => c.name);
+  const flags = [
+    'flag_checklist',
+    'flag_flota',
+    'flag_ssgg',
+    'flag_camion_pluma',
+    'flag_aprobador_salida'
+  ];
+  for (const col of flags) {
+    if (!cols.includes(col)) {
+      db.exec(`ALTER TABLE usuarios ADD COLUMN ${col} INTEGER NOT NULL DEFAULT 0`);
+    }
+  }
+
+  // Asignaciones operativas por atributos de usuario
+  try {
+    const ssggCols = db.prepare(`PRAGMA table_info(servicios_generales)`).all().map((c) => c.name);
+    if (ssggCols.length && !ssggCols.includes('asignado_id')) {
+      db.exec(`ALTER TABLE servicios_generales ADD COLUMN asignado_id INTEGER`);
+    }
+  } catch (_) { /* tabla aún no existe */ }
+
+  try {
+    const checkCols = db.prepare(`PRAGMA table_info(checklist_flota)`).all().map((c) => c.name);
+    if (checkCols.length && !checkCols.includes('tecnico_asignado_id')) {
+      db.exec(`ALTER TABLE checklist_flota ADD COLUMN tecnico_asignado_id INTEGER`);
+    }
+  } catch (_) { /* tabla aún no existe */ }
 }
 
 function getDb(slug) {
@@ -37,6 +68,7 @@ function getDb(slug) {
     if (!fs.existsSync(dbPathFor(key))) {
       throw new Error(`Base de datos no inicializada para ${key}. Ejecute: npm run init-db`);
     }
+    // Motor ya debe estar listo tras initAll()
     connections.set(key, openDb(key));
   }
   return connections.get(key);
@@ -82,18 +114,32 @@ function seedCompany(db, company) {
   for (const d of depts) insertDept.run(...d);
 
   const usuarios = [
-    [1, 'Admin', company.name, adminEmail, passwordHash, 'Administrador Sistema', 1, 3],
-    [2, 'Juan', 'Pérez', `jperez@${company.emailDomain}`, passwordHash, 'Jefe de Proyecto', 2, 1],
-    [3, 'María', 'González', `mgonzalez@${company.emailDomain}`, passwordHash, 'Analista Operaciones', 3, 1],
-    [4, 'Carlos', 'Ruiz', `cruiz@${company.emailDomain}`, passwordHash, 'Bodeguero', 4, 2],
-    [5, 'Ana', 'Silva', `asilva@${company.emailDomain}`, passwordHash, 'Analista Compras', 5, 4]
+    // id, nombre, apellido, email, pass, cargo, rol_id, dept, checklist, flota, ssgg, camion, aprobador
+    [1, 'Admin', company.name, adminEmail, passwordHash, 'Administrador Sistema', 1, 3, 1, 1, 1, 1, 1],
+    [2, 'Juan', 'Pérez', `jperez@${company.emailDomain}`, passwordHash, 'Jefe de Proyecto', 2, 1, 0, 0, 0, 0, 1],
+    [3, 'María', 'González', `mgonzalez@${company.emailDomain}`, passwordHash, 'Analista Operaciones', 3, 1, 1, 0, 0, 0, 0],
+    [4, 'Carlos', 'Ruiz', `cruiz@${company.emailDomain}`, passwordHash, 'Bodeguero / Flota', 4, 2, 1, 1, 0, 0, 0],
+    [5, 'Ana', 'Silva', `asilva@${company.emailDomain}`, passwordHash, 'Analista Compras', 5, 4, 0, 0, 0, 0, 1],
+    [6, 'Edith', 'Gómez', `edith.gomez@${company.emailDomain}`, passwordHash, 'Supply Chain / Control Agenda', 5, 4, 0, 0, 0, 1, 1],
+    [7, 'Pedro', 'Flota', `pflota@${company.emailDomain}`, passwordHash, 'Encargado de Flota', 3, 1, 1, 1, 0, 0, 0],
+    [8, 'Lucia', 'Mantención', `lmanten@${company.emailDomain}`, passwordHash, 'Servicios Generales', 3, 1, 0, 0, 1, 0, 0]
   ];
   const insertUser = db.prepare(`
     INSERT OR IGNORE INTO usuarios
-      (id, nombre, apellido, email, password, cargo, rol_id, departamento_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      (id, nombre, apellido, email, password, cargo, rol_id, departamento_id,
+       flag_checklist, flag_flota, flag_ssgg, flag_camion_pluma, flag_aprobador_salida)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   for (const u of usuarios) insertUser.run(...u);
+
+  // Asegura flags en usuarios ya existentes (re-init)
+  db.prepare(`UPDATE usuarios SET flag_checklist=1, flag_flota=1, flag_ssgg=1, flag_camion_pluma=1, flag_aprobador_salida=1 WHERE id=1`).run();
+  db.prepare(`UPDATE usuarios SET flag_aprobador_salida=1 WHERE id IN (2,5)`).run();
+  db.prepare(`UPDATE usuarios SET flag_checklist=1 WHERE id IN (3,4)`).run();
+  db.prepare(`UPDATE usuarios SET flag_checklist=1, flag_flota=1 WHERE id=4`).run();
+  db.prepare(`UPDATE usuarios SET flag_camion_pluma=1, flag_aprobador_salida=1 WHERE email LIKE 'edith.gomez@%'`).run();
+  db.prepare(`UPDATE usuarios SET flag_checklist=1, flag_flota=1 WHERE email LIKE 'pflota@%'`).run();
+  db.prepare(`UPDATE usuarios SET flag_ssgg=1 WHERE email LIKE 'lmanten@%'`).run();
 
   const estados = [
     [1, 'Pendiente Aprobación', 'Espera aprobación del jefe de proyecto', '#f59e0b', 1],
@@ -303,7 +349,8 @@ function seedModules(db, company) {
   `).run();
 }
 
-function initAll() {
+async function initAll() {
+  await initEngine();
   ensureDataDir();
   const results = [];
 
@@ -313,6 +360,8 @@ function initAll() {
     const db = openDb(company.slug);
     db.exec(schemaSql);
     db.exec(schemaModulesSql);
+    db.exec(schemaAngelSql);
+    migrateUserFlags(db);
     seedCompany(db, company);
     connections.set(company.slug, db);
     results.push({
@@ -337,5 +386,6 @@ module.exports = {
   initAll,
   closeAll,
   dbPathFor,
-  ensureDataDir
+  ensureDataDir,
+  initEngine
 };

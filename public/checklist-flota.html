@@ -2,15 +2,15 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Checklist Flota - ESERCOM</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <link href="/css/app.css" rel="stylesheet">
+  <link href="/css/app.css?v=resp1" rel="stylesheet">
 </head>
 <body>
-  <script src="/js/auth.js"></script>
-  <script src="/js/ui.js"></script>
+  <script src="/js/auth.js?v=resp1"></script>
+  <script src="/js/ui.js?v=resp1"></script>
   <script>
     const user = renderShell('/checklist-flota.html', '<i class="fas fa-clipboard-check"></i> Checklist Flota', 'Inspección diaria de vehículos');
     const EST = ['OK','Observación','Falla'];
@@ -18,9 +18,14 @@
     async function boot() {
       const content = document.getElementById('app-content');
       try {
-        const { data } = await Auth.api('/api/modulos/checklist');
+        const [pack, flota] = await Promise.all([
+          Auth.api('/api/modulos/checklist'),
+          UI.loadUsuarios('flota')
+        ]);
+        const { data, can_create: canCreate, can_assign_flota: canAssign } = pack;
         content.innerHTML = `
           <div id="flash"></div>
+          ${canCreate ? `
           <div class="card"><div class="card-header"><h2>Nuevo checklist</h2></div><div class="card-body">
             <form id="form">
               <div class="form-row cols-3">
@@ -38,31 +43,60 @@
                 <div class="form-group"><label>Documentos</label>${sel('documentos')}</div>
                 <div class="form-group"><label>Estado general</label>${sel('estado_general')}</div>
               </div>
-              <div class="form-group"><label>Observaciones</label><textarea id="observaciones"></textarea></div>
+              <div class="form-row">
+                <div class="form-group"><label>Encargado de flota (requerimiento)</label>
+                  <select id="tecnico_asignado_id"><option value="">Sin asignar</option>${UI.optionList(flota,'id',x=>x.nombre+' '+x.apellido)}</select>
+                </div>
+                <div class="form-group"><label>Observaciones</label><textarea id="observaciones"></textarea></div>
+              </div>
               <button class="btn btn-primary" type="submit">Guardar checklist</button>
             </form>
-          </div></div>
+          </div></div>` : `
+          <div class="alert alert-ok">Solo usuarios con atributo <strong>Checklist Flota</strong> en Configuraciones pueden registrar inspecciones. Puedes ver el historial abajo.</div>
+          `}
           <div class="card"><div class="card-header"><h2>Historial</h2></div>
-            <div class="card-body table-wrap"><table class="data"><thead><tr><th>Fecha</th><th>Patente</th><th>Km</th><th>Estado</th><th>Conductor</th><th>Obs</th><th></th></tr></thead>
+            <div class="card-body table-wrap"><table class="data"><thead><tr><th>Fecha</th><th>Patente</th><th>Km</th><th>Estado</th><th>Conductor</th><th>Encargado flota</th><th>Obs</th><th></th></tr></thead>
             <tbody>${data.map(r=>`<tr>
               <td>${formatDate(r.fecha)}</td><td><strong>${r.patente}</strong></td><td>${r.kilometraje||0}</td>
               <td>${UI.badge(r.estado_general, UI.statusColor(r.estado_general==='OK'?'OK':r.estado_general))}</td>
-              <td>${r.conductor||'—'}</td><td>${r.observaciones||'—'}</td>
-              <td><button class="btn btn-outline btn-sm" onclick="anular(${r.id})">Anular</button></td>
-            </tr>`).join('')||UI.emptyRow(7)}</tbody></table></div></div>`;
-        form.onsubmit = async (e) => {
-          e.preventDefault();
-          try {
-            await Auth.api('/api/modulos/checklist', { method:'POST', body: JSON.stringify({
-              patente: patente.value, kilometraje: Number(kilometraje.value)||0, fecha: fecha.value,
-              neumaticos: neumaticos.value, luces: luces.value, frenos: frenos.value, aceite: aceite.value,
-              documentos: documentos.value, estado_general: estado_general.value, observaciones: observaciones.value||null
-            })});
-            UI.flash('Checklist guardado'); boot();
-          } catch(err){ UI.flash(err.message,true); }
-        };
+              <td>${r.conductor||'—'}</td>
+              <td>${r.tecnico||'—'}</td>
+              <td>${r.observaciones||'—'}</td>
+              <td>
+                ${canAssign && !r.tecnico_asignado_id ? `<button class="btn btn-secondary btn-sm" onclick="tomar(${r.id})">Tomar req.</button>` : ''}
+                ${canAssign && !r.tecnico_asignado_id ? `<select onchange="asignar(${r.id},this.value)" style="margin-left:.35rem;max-width:140px"><option value="">Asignar...</option>${UI.optionList(flota,'id',x=>x.nombre+' '+x.apellido)}</select>` : ''}
+                ${canCreate ? `<button class="btn btn-outline btn-sm" onclick="anular(${r.id})">Anular</button>` : ''}
+              </td>
+            </tr>`).join('')||UI.emptyRow(8)}</tbody></table></div></div>`;
+        if (canCreate) {
+          form.onsubmit = async (e) => {
+            e.preventDefault();
+            try {
+              await Auth.api('/api/modulos/checklist', { method:'POST', body: JSON.stringify({
+                patente: patente.value, kilometraje: Number(kilometraje.value)||0, fecha: fecha.value,
+                neumaticos: neumaticos.value, luces: luces.value, frenos: frenos.value, aceite: aceite.value,
+                documentos: documentos.value, estado_general: estado_general.value, observaciones: observaciones.value||null,
+                tecnico_asignado_id: tecnico_asignado_id.value ? Number(tecnico_asignado_id.value) : null
+              })});
+              UI.flash('Checklist guardado'); boot();
+            } catch(err){ UI.flash(err.message,true); }
+          };
+        }
       } catch(e){ content.innerHTML=`<div class="alert alert-error">${e.message}</div>`; }
     }
+    window.tomar = async (id)=>{
+      try {
+        await Auth.api('/api/modulos/checklist/'+id+'/asignar',{method:'POST',body:JSON.stringify({})});
+        UI.flash('Requerimiento tomado'); boot();
+      } catch(err){ UI.flash(err.message,true); }
+    };
+    window.asignar = async (id, tecnico_asignado_id)=>{
+      if(!tecnico_asignado_id) return;
+      try {
+        await Auth.api('/api/modulos/checklist/'+id+'/asignar',{method:'POST',body:JSON.stringify({tecnico_asignado_id:Number(tecnico_asignado_id)})});
+        UI.flash('Encargado asignado'); boot();
+      } catch(err){ UI.flash(err.message,true); }
+    };
     window.anular = async (id)=>{ if(!confirm('¿Anular?'))return; await Auth.api('/api/modulos/checklist/'+id+'/anular',{method:'POST',body:'{}'}); boot(); };
     if (user) boot();
   </script>

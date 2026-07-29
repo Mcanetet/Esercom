@@ -2,22 +2,29 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Servicios Generales - ESERCOM</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <link href="/css/app.css" rel="stylesheet">
+  <link href="/css/app.css?v=resp1" rel="stylesheet">
 </head>
 <body>
-  <script src="/js/auth.js"></script>
-  <script src="/js/ui.js"></script>
+  <script src="/js/auth.js?v=resp1"></script>
+  <script src="/js/ui.js?v=resp1"></script>
   <script>
     const user = renderShell('/serviciosgenerales.html', '<i class="fas fa-tools"></i> Servicios Generales', 'Tickets de mantención y seguimiento');
     const CATS = ['Eléctrico','Gasfitería','Aire acondicionado','Infraestructura','Limpieza','Otro'];
     async function boot() {
+      await refreshUserSession();
+      const current = Auth.getUser() || user;
+      const canManage = UI.hasFlag(current, 'flag_ssgg');
       const content = document.getElementById('app-content');
       try {
-        const { data } = await Auth.api('/api/modulos/ssgg');
+        const [pack, ssggUsers] = await Promise.all([
+          Auth.api('/api/modulos/ssgg'),
+          UI.loadUsuarios('ssgg')
+        ]);
+        const data = pack.data;
         content.innerHTML = `
           <div id="flash"></div>
           <div class="card"><div class="card-header"><h2>Nuevo ticket</h2></div><div class="card-body">
@@ -31,34 +38,56 @@
                 <div class="form-group"><label>Título *</label><input id="titulo" required></div>
                 <div class="form-group"><label>Ubicación</label><input id="ubicacion"></div>
               </div>
+              <div class="form-group"><label>Asignar a (SSGG)</label>
+                <select id="asignado_id"><option value="">Sin asignar</option>${UI.optionList(ssggUsers,'id',x=>x.nombre+' '+x.apellido+(x.cargo?' — '+x.cargo:''))}</select>
+              </div>
               <div class="form-group"><label>Descripción</label><textarea id="descripcion"></textarea></div>
               <button class="btn btn-primary" type="submit">Crear ticket</button>
             </form>
           </div></div>
           <div class="card"><div class="card-header"><h2>Tickets</h2></div>
-            <div class="card-body table-wrap"><table class="data"><thead><tr><th>Código</th><th>Categoría</th><th>Título</th><th>Prioridad</th><th>Estado</th><th>Solicitante</th><th></th></tr></thead>
+            <div class="card-body table-wrap"><table class="data"><thead><tr><th>Código</th><th>Categoría</th><th>Título</th><th>Prioridad</th><th>Estado</th><th>Solicitante</th><th>Asignado</th><th></th></tr></thead>
             <tbody>${data.map(r=>`<tr>
               <td><strong>${r.codigo}</strong></td><td>${r.categoria}</td><td>${r.titulo}</td>
               <td>${UI.badge(r.prioridad, r.prioridad==='Alta'||r.prioridad==='Crítica'?'#ef4444':'#f59e0b')}</td>
               <td>${UI.badge(r.estado,UI.statusColor(r.estado))}</td><td>${r.solicitante||'—'}</td>
+              <td>${r.asignado||'—'}</td>
               <td>
-                <button class="btn btn-secondary btn-sm" onclick="upd(${r.id},{estado:'En proceso',fecha_inicio:'${new Date().toISOString().slice(0,10)}'})">Iniciar</button>
-                <button class="btn btn-success btn-sm" onclick="upd(${r.id},{estado:'Cerrado',fecha_termino_real:'${new Date().toISOString().slice(0,10)}'})">Cerrar</button>
+                ${canManage ? `
+                  <select onchange="asignar(${r.id}, this.value)" style="margin-right:.35rem;max-width:150px">
+                    <option value="">Asignar...</option>${UI.optionList(ssggUsers,'id',x=>x.nombre+' '+x.apellido)}
+                  </select>
+                  <button class="btn btn-secondary btn-sm" onclick="upd(${r.id},{estado:'En proceso',fecha_inicio:'${new Date().toISOString().slice(0,10)}'})">Iniciar</button>
+                  <button class="btn btn-success btn-sm" onclick="upd(${r.id},{estado:'Cerrado',fecha_termino_real:'${new Date().toISOString().slice(0,10)}'})">Cerrar</button>
+                ` : '<span style="color:var(--muted);font-size:.8rem">Solo SSGG gestiona</span>'}
               </td>
-            </tr>`).join('')||UI.emptyRow(7)}</tbody></table></div></div>`;
+            </tr>`).join('')||UI.emptyRow(8)}</tbody></table></div></div>`;
         form.onsubmit = async (e) => {
           e.preventDefault();
           try {
             const r = await Auth.api('/api/modulos/ssgg', { method:'POST', body: JSON.stringify({
               categoria: categoria.value, prioridad: prioridad.value, titulo: titulo.value,
-              descripcion: descripcion.value||null, ubicacion: ubicacion.value||null, fecha_requerida: fecha_requerida.value||null
+              descripcion: descripcion.value||null, ubicacion: ubicacion.value||null, fecha_requerida: fecha_requerida.value||null,
+              asignado_id: asignado_id.value ? Number(asignado_id.value) : null
             })});
             UI.flash('Creado '+r.data.codigo); boot();
           } catch(err){ UI.flash(err.message,true); }
         };
       } catch(e){ content.innerHTML=`<div class="alert alert-error">${e.message}</div>`; }
     }
-    window.upd = async (id, body) => { await Auth.api('/api/modulos/ssgg/'+id,{method:'POST',body:JSON.stringify(body)}); boot(); };
+    window.asignar = async (id, asignado_id) => {
+      if (!asignado_id) return;
+      try {
+        await Auth.api('/api/modulos/ssgg/'+id,{method:'POST',body:JSON.stringify({asignado_id:Number(asignado_id)})});
+        boot();
+      } catch(err){ UI.flash(err.message,true); }
+    };
+    window.upd = async (id, body) => {
+      try {
+        await Auth.api('/api/modulos/ssgg/'+id,{method:'POST',body:JSON.stringify(body)});
+        boot();
+      } catch(err){ UI.flash(err.message,true); }
+    };
     if (user) boot();
   </script>
 </body>

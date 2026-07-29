@@ -187,6 +187,16 @@ router.post('/', (req, res) => {
 });
 
 router.post('/:id/aprobar', (req, res) => {
+  const user = req.auth?.user;
+  const rol = String(user?.rol || '').toLowerCase();
+  const esAdmin = user?.rol_id === 1 || rol.includes('admin');
+  if (!esAdmin && !user?.flag_aprobador_salida) {
+    return res.status(403).json({
+      success: false,
+      message: 'Solo aprobadores de salida de materiales pueden aprobar'
+    });
+  }
+
   const id = Number(req.params.id);
   const s = req.db.prepare('SELECT * FROM solicitudes_materiales WHERE id = ? AND eliminado = 0').get(id);
   if (!s) return res.status(404).json({ success: false, message: 'Solicitud no encontrada' });
@@ -210,6 +220,16 @@ router.post('/:id/aprobar', (req, res) => {
 });
 
 router.post('/:id/rechazar', (req, res) => {
+  const user = req.auth?.user;
+  const rol = String(user?.rol || '').toLowerCase();
+  const esAdmin = user?.rol_id === 1 || rol.includes('admin');
+  if (!esAdmin && !user?.flag_aprobador_salida) {
+    return res.status(403).json({
+      success: false,
+      message: 'Solo aprobadores de salida de materiales pueden rechazar'
+    });
+  }
+
   const id = Number(req.params.id);
   const s = req.db.prepare('SELECT * FROM solicitudes_materiales WHERE id = ? AND eliminado = 0').get(id);
   if (!s) return res.status(404).json({ success: false, message: 'Solicitud no encontrada' });

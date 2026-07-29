@@ -41,8 +41,11 @@ async function loadCecos() {
   return data;
 }
 
-async function loadUsuarios() {
-  const { data } = await Auth.api('/api/catalogos/usuarios');
+async function loadUsuarios(flag) {
+  const url = flag
+    ? `/api/catalogos/usuarios?flag=${encodeURIComponent(flag)}`
+    : '/api/catalogos/usuarios';
+  const { data } = await Auth.api(url);
   return data;
 }
 
@@ -57,4 +60,11 @@ async function loadMateriales(q) {
   return data;
 }
 
-window.UI = { flash, badge, statusColor, optionList, emptyRow, loadCecos, loadUsuarios, loadProveedores, loadMateriales };
+function hasFlag(user, flag) {
+  if (!user) return false;
+  const rol = String(user.rol || '').toLowerCase();
+  if (user.rol_id === 1 || rol.includes('admin')) return true;
+  return !!user[flag];
+}
+
+window.UI = { flash, badge, statusColor, optionList, emptyRow, loadCecos, loadUsuarios, loadProveedores, loadMateriales, hasFlag };

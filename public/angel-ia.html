@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Angel IA - ESERCOM</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <link href="/css/app.css?v=resp1" rel="stylesheet">
+</head>
+<body>
+  <script src="/js/auth.js?v=resp1"></script>
+  <script src="/js/ui.js?v=resp1"></script>
+  <script>
+    const user = renderShell('/angel-ia.html', '<i class="fas fa-robot"></i> Angel IA', 'Asistente OpenAI para reportes, alertas y consultas');
+
+    async function boot() {
+      const content = document.getElementById('app-content');
+      try {
+        const [status, alertas, reportes, historial] = await Promise.all([
+          Auth.api('/api/angel/status'),
+          Auth.api('/api/angel/alertas'),
+          Auth.api('/api/angel/reportes'),
+          Auth.api('/api/angel/chat/historial')
+        ]);
+
+        content.innerHTML = `
+          <div id="flash"></div>
+          <div class="angel-layout">
+            <section class="angel-main card">
+              <div class="card-header">
+                <h2><i class="fas fa-robot" style="color:var(--accent)"></i> Conversar con Angel IA</h2>
+                <span class="badge" style="background:${status.data.activo ? '#22c55e' : '#ef4444'}">
+                  ${status.data.activo ? 'Activo · ' + status.data.model : 'Sin API key'}
+                </span>
+              </div>
+              <div class="card-body angel-chat-wrap">
+                ${!status.data.activo ? `
+                  <div class="alert alert-error">
+                    Angel IA aún no tiene API key. Un administrador debe configurarla en
+                    <a href="/angel-seguridad.html" style="color:inherit;font-weight:700">Seguridad Angel IA</a>.
+                  </div>` : ''}
+                <div class="angel-chat" id="chatBox"></div>
+                <form id="chatForm" class="angel-compose">
+                  <input id="chatInput" placeholder="Ej: ¿Qué tengo pendiente? Genera el Excel semanal por CECO…" autocomplete="off" ${status.data.activo ? '' : 'disabled'}>
+                  <button class="btn btn-primary" type="submit" ${status.data.activo ? '' : 'disabled'}>
+                    <i class="fas fa-paper-plane"></i>
+                  </button>
+                </form>
+                <div class="angel-suggestions">
+                  <button type="button" data-q="¿Qué pendientes y alertas hay ahora?">Pendientes</button>
+                  <button type="button" data-q="Genera el Excel semanal de movimientos por centro de costo y materiales">Excel semanal</button>
+                  <button type="button" data-q="Resume el estado de materiales y stock bajo">Stock</button>
+                  <button type="button" data-q="¿Qué CECOs tienen más solicitudes activas?">CECOs</button>
+                </div>
+              </div>
+            </section>
+
+            <aside class="angel-side">
+              <div class="card">
+                <div class="card-header">
+                  <h2>Alertas</h2>
+                  <button class="btn btn-secondary btn-sm" id="btnSync"><i class="fas fa-sync"></i></button>
+                </div>
+                <div class="card-body" id="alertBox">${renderAlerts(alertas.data)}</div>
+              </div>
+              <div class="card">
+                <div class="card-header">
+                  <h2>Reportes Excel</h2>
+                  <button class="btn btn-primary btn-sm" id="btnExcel"><i class="fas fa-file-excel"></i> Generar</button>
+                </div>
+                <div class="card-body" id="reportBox">${renderReports(reportes.data)}</div>
+              </div>
+              ${String(user.rol||'').toLowerCase().includes('admin') ? `
+              <a class="btn btn-outline" href="/angel-seguridad.html" style="width:100%">
+                <i class="fas fa-shield-halved"></i> Seguridad / API Key
+              </a>` : ''}
+            </aside>
+          </div>
+        `;
+
+        const chatBox = document.getElementById('chatBox');
+        historial.data.forEach((m) => appendMsg(chatBox, m.rol, m.contenido));
+        if (!historial.data.length) {
+          appendMsg(chatBox, 'assistant', 'Hola, soy Angel IA. Puedo revisar pendientes, generar Excel por CECO/materiales y crear alertas. ¿En qué te ayudo?');
+        }
+
+        document.getElementById('chatForm').onsubmit = async (e) => {
+          e.preventDefault();
+          const msg = chatInput.value.trim();
+          if (!msg) return;
+          chatInput.value = '';
+          appendMsg(chatBox, 'user', msg);
+          const thinking = appendMsg(chatBox, 'assistant', 'Pensando…');
+          try {
+            const r = await Auth.api('/api/angel/chat', { method: 'POST', body: JSON.stringify({ message: msg }) });
+            thinking.querySelector('.angel-bubble').textContent = r.data.reply;
+            if (r.data.tools?.some((t) => t.name === 'generar_excel_semanal' || t.name === 'generar_alertas')) {
+              refreshSide();
+            }
+          } catch (err) {
+            thinking.querySelector('.angel-bubble').textContent = err.message;
+          }
+        };
+
+        document.querySelectorAll('[data-q]').forEach((btn) => {
+          btn.onclick = () => {
+            chatInput.value = btn.dataset.q;
+            chatForm.requestSubmit();
+          };
+        });
+
+        document.getElementById('btnSync').onclick = async () => {
+          try {
+            const r = await Auth.api('/api/angel/alertas/sincronizar', { method: 'POST', body: '{}' });
+            UI.flash(r.message || 'Sincronizado');
+            refreshSide();
+          } catch (e) { UI.flash(e.message, true); }
+        };
+
+        document.getElementById('btnExcel').onclick = async () => {
+          try {
+            const r = await Auth.api('/api/angel/reportes/semanal', { method: 'POST', body: '{}' });
+            UI.flash('Excel generado');
+            await downloadAuth(r.data.download, 'reporte_angel.xlsx');
+            refreshSide();
+          } catch (e) { UI.flash(e.message, true); }
+        };
+      } catch (e) {
+        content.innerHTML = `<div class="alert alert-error">${e.message}</div>`;
+      }
+    }
+
+    function renderAlerts(rows) {
+      if (!rows.length) return '<p class="home-empty">Sin alertas pendientes</p>';
+      return `<ul class="angel-alert-list">${rows.slice(0, 12).map((a) => `
+        <li class="sev-${a.severidad}">
+          <strong>${a.titulo}</strong>
+          <span>${a.mensaje}</span>
+          <button type="button" onclick="leerAlerta(${a.id})">Marcar leída</button>
+        </li>`).join('')}</ul>
+        <button class="btn btn-secondary btn-sm" style="margin-top:.5rem;width:100%" onclick="leerTodas()">Marcar todas</button>`;
+    }
+
+    function renderReports(rows) {
+      if (!rows.length) return '<p class="home-empty">Aún no hay reportes</p>';
+      return `<ul class="angel-report-list">${rows.slice(0, 8).map((r) => `
+        <li>
+          <strong>${r.titulo}</strong>
+          <small>${formatDate(r.fecha_creacion)}</small>
+          ${r.archivo ? `<button type="button" class="btn btn-outline btn-sm" onclick="dl('${r.archivo}')">Descargar</button>` : ''}
+        </li>`).join('')}</ul>`;
+    }
+
+    function appendMsg(box, rol, text) {
+      const el = document.createElement('div');
+      el.className = `angel-msg ${rol === 'assistant' ? 'bot' : 'me'}`;
+      el.innerHTML = `<div class="angel-bubble"></div>`;
+      el.querySelector('.angel-bubble').textContent = text;
+      box.appendChild(el);
+      box.scrollTop = box.scrollHeight;
+      return el;
+    }
+
+    async function refreshSide() {
+      const [alertas, reportes] = await Promise.all([
+        Auth.api('/api/angel/alertas'),
+        Auth.api('/api/angel/reportes')
+      ]);
+      document.getElementById('alertBox').innerHTML = renderAlerts(alertas.data);
+      document.getElementById('reportBox').innerHTML = renderReports(reportes.data);
+    }
+
+    async function downloadAuth(url, name) {
+      const res = await fetch(url, { headers: { Authorization: 'Bearer ' + Auth.getToken() } });
+      if (!res.ok) throw new Error('No se pudo descargar');
+      const blob = await res.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = name;
+      a.click();
+    }
+
+    window.leerAlerta = async (id) => {
+      await Auth.api('/api/angel/alertas/' + id + '/leer', { method: 'POST', body: '{}' });
+      refreshSide();
+    };
+    window.leerTodas = async () => {
+      await Auth.api('/api/angel/alertas/leer-todas', { method: 'POST', body: '{}' });
+      refreshSide();
+    };
+    window.dl = async (archivo) => {
+      const file = String(archivo).split('/').pop();
+      await downloadAuth('/api/angel/reportes/download/' + file, file);
+    };
+
+    if (user) boot();
+  </script>
+</body>
+</html>

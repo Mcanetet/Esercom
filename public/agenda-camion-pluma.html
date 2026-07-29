@@ -2,15 +2,15 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Agenda Camión Pluma - ESERCOM</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <link href="/css/app.css" rel="stylesheet">
+  <link href="/css/app.css?v=resp1" rel="stylesheet">
 </head>
 <body>
-  <script src="/js/auth.js"></script>
-  <script src="/js/ui.js"></script>
+  <script src="/js/auth.js?v=resp1"></script>
+  <script src="/js/ui.js?v=resp1"></script>
   <script>
     const user = renderShell('/agenda-camion-pluma.html', '<i class="fas fa-truck-ramp-box"></i> Agenda Camión Pluma', 'Servicios y bloqueos del camión pluma');
     const EMPRESAS = ['Sercom','Global','Intercanje','Tactica','Nexus','Otros'];
@@ -18,8 +18,10 @@
       const content = document.getElementById('app-content');
       try {
         const [cecos, list] = await Promise.all([UI.loadCecos(), Auth.api('/api/modulos/agenda')]);
+        const canManage = !!list.can_manage;
         content.innerHTML = `
           <div id="flash"></div>
+          ${canManage ? `
           <div class="card"><div class="card-header"><h2>Programar servicio</h2></div><div class="card-body">
             <form id="form">
               <div class="form-row cols-3">
@@ -45,31 +47,35 @@
               <div class="form-group"><label>Observaciones</label><input id="observaciones"></div>
               <button class="btn btn-primary" type="submit">Guardar</button>
             </form>
-          </div></div>
+          </div></div>` : `
+          <div class="alert alert-ok">Solo usuarios con atributo <strong>Control Agenda Camión Pluma</strong> en Configuraciones (perfil tipo Edith Gómez) pueden modificar la agenda. La consulta está disponible abajo.</div>
+          `}
           <div class="card"><div class="card-header"><h2>Agenda</h2></div>
             <div class="card-body table-wrap"><table class="data"><thead><tr><th>Fecha</th><th>Horario</th><th>Empresa</th><th>Tipo</th><th>Proyecto</th><th>Ruta</th><th>Km</th><th>Estado</th><th></th></tr></thead>
             <tbody>${list.data.map(r=>`<tr>
               <td>${formatDate(r.fecha)}</td><td>${r.hora_inicio||'—'} - ${r.hora_fin||'—'}</td><td>${r.empresa}</td>
               <td>${r.tipo_servicio}</td><td>${r.proyecto||'—'}</td><td>${(r.origen||'—')+' → '+(r.destino||'—')}</td>
               <td>${r.kilometraje||0}</td><td>${UI.badge(r.estado,UI.statusColor(r.estado))}</td>
-              <td><button class="btn btn-outline btn-sm" onclick="del(${r.id})">Eliminar</button></td>
+              <td>${canManage ? `<button class="btn btn-outline btn-sm" onclick="del(${r.id})">Eliminar</button>` : ''}</td>
             </tr>`).join('')||UI.emptyRow(9)}</tbody></table></div></div>`;
-        form.onsubmit = async (e) => {
-          e.preventDefault();
-          try {
-            await Auth.api('/api/modulos/agenda', { method:'POST', body: JSON.stringify({
-              empresa: empresa.value, fecha: fecha.value, hora_inicio: hora_inicio.value||null, hora_fin: hora_fin.value||null,
-              tipo_servicio: tipo_servicio.value, solicitante: solicitante.value||null, chofer: chofer.value||null,
-              ceco_id: ceco_id.value?Number(ceco_id.value):null, proyecto: proyecto.value||null,
-              origen: origen.value||null, destino: destino.value||null, kilometraje: Number(kilometraje.value)||0,
-              observaciones: observaciones.value||null, es_bloqueo: tipo_servicio.value==='Bloqueo'
-            })});
-            UI.flash('Agendado'); boot();
-          } catch(err){ UI.flash(err.message,true); }
-        };
+        if (canManage) {
+          form.onsubmit = async (e) => {
+            e.preventDefault();
+            try {
+              await Auth.api('/api/modulos/agenda', { method:'POST', body: JSON.stringify({
+                empresa: empresa.value, fecha: fecha.value, hora_inicio: hora_inicio.value||null, hora_fin: hora_fin.value||null,
+                tipo_servicio: tipo_servicio.value, solicitante: solicitante.value||null, chofer: chofer.value||null,
+                ceco_id: ceco_id.value?Number(ceco_id.value):null, proyecto: proyecto.value||null,
+                origen: origen.value||null, destino: destino.value||null, kilometraje: Number(kilometraje.value)||0,
+                observaciones: observaciones.value||null, es_bloqueo: tipo_servicio.value==='Bloqueo'
+              })});
+              UI.flash('Agendado'); boot();
+            } catch(err){ UI.flash(err.message,true); }
+          };
+        }
       } catch(e){ content.innerHTML=`<div class="alert alert-error">${e.message}</div>`; }
     }
-    window.del = async (id)=>{ if(!confirm('¿Eliminar?'))return; await Auth.api('/api/modulos/agenda/'+id+'/eliminar',{method:'POST',body:'{}'}); boot(); };
+    window.del = async (id)=>{ if(!confirm('¿Eliminar?'))return; try { await Auth.api('/api/modulos/agenda/'+id+'/eliminar',{method:'POST',body:'{}'}); boot(); } catch(err){ UI.flash(err.message,true); } };
     if (user) boot();
   </script>
 </body>
