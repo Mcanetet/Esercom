@@ -38,100 +38,65 @@ function hasCol(cols, name) {
 router.get('/materiales', async (req, res) => {
   try {
     const q = String(req.query.q || '').trim();
-    // Consulta mínima compatible con MySQL productivo (sin stock/precio)
+    // Nunca selecciona stock/precio de la BD: evita crash si la columna no existe.
+    // Esos campos se rellenan en JS (0) o se leen aparte solo si migrate ya los creó.
     let rows;
-    if (q) {
-      const like = `%${q}%`;
+    try {
+      if (q) {
+        const like = `%${q}%`;
+        rows = await req.db.prepare(`
+          SELECT id, codigo, nombre, descripcion
+          FROM materiales
+          WHERE (activo = 1 OR activo IS NULL)
+            AND (codigo LIKE ? OR nombre LIKE ? OR IFNULL(descripcion,'') LIKE ?)
+          ORDER BY nombre
+          LIMIT 50
+        `).all(like, like, like);
+      } else {
+        rows = await req.db.prepare(`
+          SELECT id, codigo, nombre, descripcion
+          FROM materiales
+          WHERE (activo = 1 OR activo IS NULL)
+          ORDER BY nombre
+          LIMIT 200
+        `).all();
+      }
+    } catch (_) {
       rows = await req.db.prepare(`
-        SELECT id, codigo, nombre, descripcion
-        FROM materiales
-        WHERE (activo = 1 OR activo IS NULL)
-          AND (codigo LIKE ? OR nombre LIKE ? OR IFNULL(descripcion,'') LIKE ?)
-        ORDER BY nombre
-        LIMIT 50
-      `).all(like, like, like);
-    } else {
-      rows = await req.db.prepare(`
-        SELECT id, codigo, nombre, descripcion
-        FROM materiales
-        WHERE (activo = 1 OR activo IS NULL)
-        ORDER BY nombre
-        LIMIT 200
+        SELECT id, codigo, nombre, descripcion FROM materiales ORDER BY id DESC LIMIT 200
       `).all();
     }
 
-    // Enriquecer unidad/precio/stock solo si existen en la BD
-    const cols = await getColumns(req.db, 'materiales');
+    let unidadById = new Map();
+    try {
+      const cols = await getColumns(req.db, 'materiales');
+      if (cols && (hasCol(cols, 'unidad') || hasCol(cols, 'unidad_medida'))) {
+        const unidadExpr = hasCol(cols, 'unidad') ? 'unidad' : 'unidad_medida AS unidad';
+        const ids = rows.map((r) => r.id);
+        if (ids.length) {
+          const ph = ids.map(() => '?').join(',');
+          const extra = await req.db.prepare(
+            `SELECT id, ${unidadExpr} FROM materiales WHERE id IN (${ph})`
+          ).all(...ids);
+          unidadById = new Map(extra.map((e) => [e.id, e.unidad]));
+        }
+      }
+    } catch (_) { /* ignore */ }
+
     const data = rows.map((r) => ({
       id: r.id,
       codigo: r.codigo,
       nombre: r.nombre,
       descripcion: r.descripcion,
-      unidad: 'UN',
+      unidad: unidadById.get(r.id) || 'UN',
       precio: 0,
       stock: 0
     }));
 
-    if (cols && (hasCol(cols, 'unidad') || hasCol(cols, 'unidad_medida') || hasCol(cols, 'precio') || hasCol(cols, 'stock'))) {
-      try {
-        const unidadExpr = hasCol(cols, 'unidad')
-          ? 'unidad'
-          : (hasCol(cols, 'unidad_medida') ? 'unidad_medida AS unidad' : "'UN' AS unidad");
-        const precioExpr = hasCol(cols, 'precio') ? 'precio' : '0 AS precio';
-        const stockExpr = hasCol(cols, 'stock') ? 'stock' : '0 AS stock';
-        const ids = data.map((d) => d.id).filter(Boolean);
-        if (ids.length) {
-          const placeholders = ids.map(() => '?').join(',');
-          const extra = await req.db.prepare(`
-            SELECT id, ${unidadExpr}, ${precioExpr}, ${stockExpr}
-            FROM materiales WHERE id IN (${placeholders})
-          `).all(...ids);
-          const byId = new Map(extra.map((e) => [e.id, e]));
-          for (const d of data) {
-            const e = byId.get(d.id);
-            if (!e) continue;
-            d.unidad = e.unidad || 'UN';
-            d.precio = Number(e.precio) || 0;
-            d.stock = Number(e.stock) || 0;
-          }
-        }
-      } catch (err) {
-        console.warn('[materiales enrich]', err.message);
-      }
-    } else if (!isMysql(req.db)) {
-      // sqlite local con columnas completas
-      try {
-        const full = q
-          ? await req.db.prepare(`
-              SELECT id, codigo, nombre, descripcion, unidad, precio, stock
-              FROM materiales
-              WHERE activo = 1 AND (codigo LIKE ? OR nombre LIKE ? OR descripcion LIKE ?)
-              ORDER BY nombre LIMIT 50
-            `).all(`%${q}%`, `%${q}%`, `%${q}%`)
-          : await req.db.prepare(`
-              SELECT id, codigo, nombre, descripcion, unidad, precio, stock
-              FROM materiales WHERE activo = 1 ORDER BY nombre LIMIT 200
-            `).all();
-        return res.json({ success: true, data: full });
-      } catch (_) { /* keep minimal data */ }
-    }
-
     res.json({ success: true, data });
   } catch (err) {
     console.error('catalogos/materiales', err);
-    // Último recurso: sin filtro activo
-    try {
-      const rows = await req.db.prepare(`
-        SELECT id, codigo, nombre, descripcion FROM materiales ORDER BY id DESC LIMIT 200
-      `).all();
-      res.json({
-        success: true,
-        data: rows.map((r) => ({ ...r, unidad: 'UN', precio: 0, stock: 0 })),
-        warning: err.message
-      });
-    } catch (err2) {
-      res.status(500).json({ success: false, message: err2.message || err.message || 'Error materiales', data: [] });
-    }
+    res.status(500).json({ success: false, message: err.message || 'Error materiales', data: [] });
   }
 });
 

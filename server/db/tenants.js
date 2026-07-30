@@ -63,7 +63,15 @@ async function ensureMysqlColumns(db, table, columns) {
         console.log(`[mysql migrate] ${table}.${col} añadida`);
       }
     } catch (err) {
-      console.warn(`[mysql migrate] ${table}.${col}:`, err.message);
+      // Reintento directo: a veces information_schema no coincide con el nombre real
+      try {
+        await db.exec(`ALTER TABLE \`${table}\` ADD COLUMN \`${col}\` ${ddl}`);
+        console.log(`[mysql migrate] ${table}.${col} añadida (retry)`);
+      } catch (err2) {
+        if (!/duplicate column/i.test(err2.message || '')) {
+          console.warn(`[mysql migrate] ${table}.${col}:`, err.message || err2.message);
+        }
+      }
     }
   }
 }
