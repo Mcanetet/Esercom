@@ -31,7 +31,16 @@
         const current = Auth.getUser() || user;
         const { data: s } = await Auth.api('/api/solicitudes/' + id);
         const total = (s.detalle || []).reduce((acc, d) => acc + Number(d.subtotal || 0), 0);
-        const esAprobador = UI.hasFlag(current, 'flag_aprobador_salida');
+        let permisos = {};
+        try {
+          const pe = await Auth.api('/api/modulos/config/permisos-especiales/mios');
+          permisos = pe.data?.permisos || {};
+        } catch (_) { /* ignore */ }
+        const esAprobador = UI.hasFlag(current, 'flag_aprobador_salida')
+          || permisos.materiales_super_aprobador
+          || permisos.materiales_usuario_especial
+          || permisos.validador_oc_supply_chain
+          || String(current?.rol || '').toLowerCase().includes('admin');
         const canApprove = s.estado_id === 1 && esAprobador;
         const canReject = (s.estado_id === 1 || s.estado_id === 4) && esAprobador;
 

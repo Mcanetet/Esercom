@@ -6,7 +6,7 @@
   <title>Configuraciones - ESERCOM</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <link href="/css/app.css?v=cfg2" rel="stylesheet">
+  <link href="/css/app.css?v=cfg3" rel="stylesheet">
 </head>
 <body>
   <script src="/js/auth.js?v=resp2"></script>
@@ -22,7 +22,7 @@
       { key: 'flag_aprobador_salida', label: 'Aprobador Salida', hint: 'Aprueba salidas especiales' }
     ];
 
-    let state = { users: [], mats: [], provs: [], cecos: [], roles: [], depts: [], resumen: {} };
+    let state = { users: [], mats: [], provs: [], cecos: [], roles: [], depts: [], resumen: {}, permisos: [] };
 
     function flagsHtml(prefix, values = {}) {
       return `<div class="user-flags">${FLAG_LABELS.map((f) => `
@@ -46,6 +46,52 @@
       if (u.flag_camion_pluma) parts.push('<span class="chip chip-camion">Camión</span>');
       if (u.flag_aprobador_salida) parts.push('<span class="chip chip-aprob">Aprob.</span>');
       return parts.join(' ') || '<span class="muted">—</span>';
+    }
+
+    function renderPermisosList() {
+      const list = state.permisos || [];
+      if (!list.length) {
+        return '<div class="empty">Sin catálogo de permisos. Reinicia el servidor Node para crear las tablas.</div>';
+      }
+      const byMod = {};
+      list.forEach((p) => {
+        const m = p.modulo || 'General';
+        if (!byMod[m]) byMod[m] = [];
+        byMod[m].push(p);
+      });
+      const userOpts = state.users.map((u) =>
+        `<option value="${u.id}">${u.nombre} ${u.apellido}</option>`
+      ).join('');
+      return Object.keys(byMod).map((mod) => `
+        <div class="perm-mod">
+          <h3 class="perm-mod-title">${mod}</h3>
+          ${byMod[mod].map((p) => `
+            <div class="perm-card" data-codigo="${p.codigo}">
+              <div class="perm-card-head">
+                <strong>${p.titulo}</strong>
+                <code class="perm-code">${p.codigo}</code>
+              </div>
+              <p class="perm-desc">${p.descripcion || ''}</p>
+              <div class="perm-users">
+                ${(p.usuarios || []).map((u) => `
+                  <span class="perm-chip">
+                    ${u.nombre}${u.titular ? ' <em>(titular)</em>' : ''}
+                    <button type="button" class="perm-chip-x" title="Quitar"
+                      data-quitar-perm="${p.codigo}" data-quitar-uid="${u.usuario_id}">&times;</button>
+                  </span>
+                `).join('') || '<span class="muted">Sin personas asignadas</span>'}
+              </div>
+              <div class="perm-add">
+                <select data-add-select="${p.codigo}">
+                  <option value="">— Agregar persona —</option>
+                  ${userOpts}
+                </select>
+                <button type="button" class="btn btn-primary btn-sm" data-add-perm="${p.codigo}">Asignar</button>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      `).join('');
     }
 
     function openModal(id) {
@@ -72,7 +118,8 @@
           UI.loadProveedores(),
           UI.loadUsuarios(),
           Auth.api('/api/modulos/config/roles'),
-          Auth.api('/api/modulos/config/departamentos')
+          Auth.api('/api/modulos/config/departamentos'),
+          Auth.api('/api/modulos/config/permisos-especiales')
         ]);
         const val = (i, fb) => (settled[i].status === 'fulfilled' ? settled[i].value : fb);
         state.resumen = val(0, { data: {} }).data || {};
@@ -82,6 +129,7 @@
         state.users = val(4, []);
         state.roles = val(5, { data: [] }).data || [];
         state.depts = val(6, { data: [] }).data || [];
+        state.permisos = val(7, { data: [] }).data || [];
         const failed = settled.map((r, i) => r.status === 'rejected' ? r.reason?.message : null).filter(Boolean);
         render(failed);
       } catch (err) {
@@ -118,6 +166,14 @@
             <span class="cfg-tile-body">
               <strong>Roles</strong>
               <small>${state.roles.length} roles del sistema</small>
+            </span>
+            <i class="fas fa-chevron-right cfg-tile-arrow"></i>
+          </button>
+          <button type="button" class="cfg-tile" data-open="modalPermisos">
+            <span class="cfg-tile-icon" style="background:#be185d"><i class="fas fa-key"></i></span>
+            <span class="cfg-tile-body">
+              <strong>Permisos especiales</strong>
+              <small>${state.permisos.length} liberadores · aprobadores y agenda</small>
             </span>
             <i class="fas fa-chevron-right cfg-tile-arrow"></i>
           </button>
@@ -272,6 +328,23 @@
           </div>
         </div>
 
+        <!-- Modal Permisos especiales -->
+        <div class="cfg-modal" id="modalPermisos" role="dialog" aria-modal="true">
+          <div class="cfg-modal-backdrop" data-close></div>
+          <div class="cfg-modal-panel">
+            <header class="cfg-modal-head">
+              <div>
+                <h2>Permisos especiales</h2>
+                <p>Asigna aprobadores y liberadores (antes fijos por nombre: Edith, Nicole, agenda camión, etc.)</p>
+              </div>
+              <button type="button" class="cfg-modal-x" data-close aria-label="Cerrar">&times;</button>
+            </header>
+            <div class="cfg-modal-body">
+              ${renderPermisosList()}
+            </div>
+          </div>
+        </div>
+
         <!-- Modal Materiales -->
         <div class="cfg-modal" id="modalMats" role="dialog">
           <div class="cfg-modal-backdrop" data-close></div>
@@ -413,6 +486,39 @@
             await Auth.api('/api/modulos/config/usuarios/' + id + '/eliminar', { method: 'POST', body: '{}' });
             UI.flash('Usuario eliminado');
             boot().then(() => openModal('modalUsers'));
+          } catch (err) { UI.flash(err.message, true); }
+        };
+      });
+
+      document.querySelectorAll('[data-add-perm]').forEach((btn) => {
+        btn.onclick = async () => {
+          const codigo = btn.getAttribute('data-add-perm');
+          const sel = document.querySelector(`[data-add-select="${codigo}"]`);
+          const usuarioId = Number(sel?.value || 0);
+          if (!usuarioId) { UI.flash('Elige una persona', true); return; }
+          try {
+            await Auth.api('/api/modulos/config/permisos-especiales/' + encodeURIComponent(codigo) + '/usuarios', {
+              method: 'POST',
+              body: JSON.stringify({ usuario_id: usuarioId })
+            });
+            UI.flash('Permiso asignado');
+            boot().then(() => openModal('modalPermisos'));
+          } catch (err) { UI.flash(err.message, true); }
+        };
+      });
+
+      document.querySelectorAll('[data-quitar-perm]').forEach((btn) => {
+        btn.onclick = async () => {
+          const codigo = btn.getAttribute('data-quitar-perm');
+          const uid = btn.getAttribute('data-quitar-uid');
+          if (!confirm('¿Quitar este permiso a la persona?')) return;
+          try {
+            await Auth.api(
+              '/api/modulos/config/permisos-especiales/' + encodeURIComponent(codigo) + '/usuarios/' + uid + '/quitar',
+              { method: 'POST', body: '{}' }
+            );
+            UI.flash('Permiso quitado');
+            boot().then(() => openModal('modalPermisos'));
           } catch (err) { UI.flash(err.message, true); }
         };
       });

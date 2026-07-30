@@ -190,7 +190,14 @@ router.post('/:id/aprobar', async (req, res) => {
   const user = req.auth?.user;
   const rol = String(user?.rol || '').toLowerCase();
   const esAdmin = user?.rol_id === 1 || rol.includes('admin');
-  if (!esAdmin && !user?.flag_aprobador_salida) {
+  const { userHas } = require('../services/permisos-especiales');
+  let especial = false;
+  try {
+    especial = await userHas(req.db, user.id, 'materiales_super_aprobador')
+      || await userHas(req.db, user.id, 'materiales_usuario_especial')
+      || await userHas(req.db, user.id, 'validador_oc_supply_chain');
+  } catch (_) { /* ignore */ }
+  if (!esAdmin && !user?.flag_aprobador_salida && !especial) {
     return res.status(403).json({
       success: false,
       message: 'Solo aprobadores de salida de materiales pueden aprobar'
@@ -223,7 +230,13 @@ router.post('/:id/rechazar', async (req, res) => {
   const user = req.auth?.user;
   const rol = String(user?.rol || '').toLowerCase();
   const esAdmin = user?.rol_id === 1 || rol.includes('admin');
-  if (!esAdmin && !user?.flag_aprobador_salida) {
+  const { userHas } = require('../services/permisos-especiales');
+  let especial = false;
+  try {
+    especial = await userHas(req.db, user.id, 'materiales_super_aprobador')
+      || await userHas(req.db, user.id, 'materiales_usuario_especial');
+  } catch (_) { /* ignore */ }
+  if (!esAdmin && !user?.flag_aprobador_salida && !especial) {
     return res.status(403).json({
       success: false,
       message: 'Solo aprobadores de salida de materiales pueden rechazar'

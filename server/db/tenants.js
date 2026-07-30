@@ -265,6 +265,22 @@ async function ensureMysqlModuleTables(db) {
       datos_json TEXT NULL,
       eliminado_por INT NULL,
       fecha_eliminacion DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE TABLE IF NOT EXISTS liberadores_config (
+      codigo VARCHAR(80) NOT NULL PRIMARY KEY,
+      modulo VARCHAR(80) NOT NULL DEFAULT '',
+      titulo VARCHAR(255) NOT NULL,
+      descripcion TEXT NULL,
+      usuario_id INT NULL,
+      activo TINYINT NOT NULL DEFAULT 1,
+      orden INT NOT NULL DEFAULT 0
+    )`,
+    `CREATE TABLE IF NOT EXISTS liberadores_extra (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      codigo VARCHAR(80) NOT NULL,
+      usuario_id INT NOT NULL,
+      orden INT DEFAULT 0,
+      UNIQUE KEY uq_lib_extra (codigo, usuario_id)
     )`
   ];
 
@@ -294,6 +310,12 @@ async function migrateUserFlags(db) {
       ['categoria', 'VARCHAR(255) NULL']
     ]);
     await ensureMysqlModuleTables(db);
+    try {
+      const { initPermisos } = require('../services/permisos-especiales');
+      await initPermisos(db);
+    } catch (err) {
+      console.warn('[mysql] permisos especiales:', err.message);
+    }
     // Angel IA (solo ESERCOM; no existe en PHP)
     try {
       await db.exec(`
@@ -366,6 +388,13 @@ async function migrateUserFlags(db) {
     ['flag_camion_pluma', 'INTEGER NOT NULL DEFAULT 0'],
     ['flag_aprobador_salida', 'INTEGER NOT NULL DEFAULT 0']
   ]);
+
+  try {
+    const { initPermisos } = require('../services/permisos-especiales');
+    await initPermisos(db);
+  } catch (err) {
+    console.warn('[sqlite] permisos especiales:', err.message);
+  }
 
   await ensureColumns(db, 'materiales', [['categoria', 'TEXT']]);
 

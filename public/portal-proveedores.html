@@ -16,13 +16,19 @@
     async function boot() {
       const content = document.getElementById('app-content');
       try {
-        const { data } = await Auth.api('/api/modulos/portal');
+        const res = await Auth.api('/api/modulos/portal');
+        const data = res.data || [];
+        window.__portalCaps = {
+          can_validate_guia: !!res.can_validate_guia,
+          can_aprobar_factura: !!res.can_aprobar_factura
+        };
         content.innerHTML = `<div id="flash"></div><div class="card"><div class="card-header"><h2>Solicitudes portal</h2></div>
           <div class="card-body table-wrap">${render(data)}</div></div>`;
       } catch (e) { content.innerHTML = `<div class="alert alert-error">${e.message}</div>`; }
     }
     function render(rows) {
       if (!rows.length) return '<div class="empty">Sin registros en portal</div>';
+      const caps = window.__portalCaps || {};
       return `<table class="data"><thead><tr>
         <th>Solicitud</th><th>Proyecto</th><th>Proveedor</th><th>Guía</th><th>Estado guía</th><th>Factura</th><th>Estado factura</th><th>Acciones</th>
       </tr></thead><tbody>${rows.map(r=>`
@@ -37,8 +43,8 @@
           <td style="white-space:nowrap">
             <button class="btn btn-secondary btn-sm" onclick="guia(${r.id})">Guía</button>
             <button class="btn btn-secondary btn-sm" onclick="factura(${r.id})">Factura</button>
-            <button class="btn btn-success btn-sm" onclick="validar(${r.id},true)">Validar</button>
-            <button class="btn btn-primary btn-sm" onclick="aprFact(${r.id},true)">Aprobar F.</button>
+            ${caps.can_validate_guia ? `<button class="btn btn-success btn-sm" onclick="validar(${r.id},true)">Validar</button>` : ''}
+            ${caps.can_aprobar_factura ? `<button class="btn btn-primary btn-sm" onclick="aprFact(${r.id},true)">Aprobar F.</button>` : ''}
           </td>
         </tr>`).join('')}</tbody></table>`;
     }

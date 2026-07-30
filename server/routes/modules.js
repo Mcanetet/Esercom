@@ -51,6 +51,16 @@ function hasUserFlag(user, flag) {
   return !!user?.[flag] || isAdminUser(user);
 }
 
+async function hasPermisoEspecial(db, user, codigo) {
+  if (isAdminUser(user)) return true;
+  try {
+    const { userHas } = require('../services/permisos-especiales');
+    return await userHas(db, user.id, codigo);
+  } catch (_) {
+    return false;
+  }
+}
+
 function denyUnlessFlag(req, res, flag, message) {
   if (hasUserFlag(req.auth?.user, flag)) return false;
   res.status(403).json({ success: false, message: message || 'No tienes permiso para esta acción' });
@@ -138,7 +148,18 @@ router.post('/compras/:id/eliminar', async (req, res) => {
 });
 
 /* ========== PORTAL PROVEEDORES ========== */
+async function portalCaps(req) {
+  const canValidateGuia = hasUserFlag(req.auth?.user, 'flag_aprobador_salida')
+    || await hasPermisoEspecial(req.db, req.auth.user, 'guias_validador')
+    || await hasPermisoEspecial(req.db, req.auth.user, 'validador_oc_supply_chain')
+    || await hasPermisoEspecial(req.db, req.auth.user, 'materiales_super_aprobador');
+  const canAprobarFactura = canValidateGuia
+    || await hasPermisoEspecial(req.db, req.auth.user, 'facturas_aprobador');
+  return { can_validate_guia: canValidateGuia, can_aprobar_factura: canAprobarFactura };
+}
+
 router.get('/portal', async (req, res) => {
+  const caps = await portalCaps(req);
   try {
     const data = await req.db.prepare(`
       SELECT p.*, s.codigo AS solicitud_codigo, s.numero_proyecto,
@@ -149,7 +170,7 @@ router.get('/portal', async (req, res) => {
       LEFT JOIN estados_solicitud e ON e.id = s.estado_id
       ORDER BY p.id DESC LIMIT 200
     `).all();
-    return res.json({ success: true, data });
+    return res.json({ success: true, data, ...caps });
   } catch (_) { /* fallback abajo */ }
 
   try {
@@ -162,7 +183,7 @@ router.get('/portal', async (req, res) => {
       LEFT JOIN estados_solicitud e ON e.id = s.estado_id
       ORDER BY p.id DESC LIMIT 200
     `).all();
-    return res.json({ success: true, data });
+    return res.json({ success: true, data, ...caps });
   } catch (err) {
     // Productivo: portal embebido en solicitudes
     try {
@@ -178,10 +199,10 @@ router.get('/portal', async (req, res) => {
         WHERE s.eliminado = 0 AND (s.ubicacion_entrega = 'directo-proveedor' OR s.portal_estado IS NOT NULL)
         ORDER BY s.id DESC LIMIT 200
       `).all();
-      return res.json({ success: true, data });
+      return res.json({ success: true, data, ...caps });
     } catch (err2) {
       console.error('portal', err2.message);
-      return res.json({ success: true, data: [], warning: err2.message });
+      return res.json({ success: true, data: [], warning: err2.message, ...caps });
     }
   }
 });
@@ -207,6 +228,10 @@ router.post('/portal/:id/factura', async (req, res) => {
 });
 
 router.post('/portal/:id/validar-guia', async (req, res) => {
+  const caps = await portalCaps(req);
+  if (!caps.can_validate_guia) {
+    return res.status(403).json({ success: false, message: 'Solo validadores de guía (permiso especial) pueden validar' });
+  }
   const ok = req.body?.aprobar !== false;
   await req.db.prepare(`UPDATE portal_proveedor SET guia_estado = ? WHERE id = ?`)
     .run(ok ? 'Validada' : 'Rechazada', Number(req.params.id));
@@ -214,6 +239,10 @@ router.post('/portal/:id/validar-guia', async (req, res) => {
 });
 
 router.post('/portal/:id/aprobar-factura', async (req, res) => {
+  const caps = await portalCaps(req);
+  if (!caps.can_aprobar_factura) {
+    return res.status(403).json({ success: false, message: 'Solo aprobadores de factura (permiso especial) pueden aprobar' });
+  }
   const ok = req.body?.aprobar !== false;
   await req.db.prepare(`UPDATE portal_proveedor SET factura_estado = ? WHERE id = ?`)
     .run(ok ? 'Aprobada' : 'Rechazada', Number(req.params.id));
@@ -514,15 +543,22 @@ router.get('/agenda', async (req, res) => {
     LEFT JOIN cecos c ON c.id = a.ceco_id
     ORDER BY a.fecha DESC, a.hora_inicio
   `).all();
+  const canFlag = hasUserFlag(req.auth?.user, 'flag_camion_pluma');
+  const canPerm = await hasPermisoEspecial(req.db, req.auth.user, 'camion_agenda_control')
+    || await hasPermisoEspecial(req.db, req.auth.user, 'camion_editar_km_precios');
   res.json({
     success: true,
     data,
-    can_manage: hasUserFlag(req.auth?.user, 'flag_camion_pluma')
+    can_manage: canFlag || canPerm
   });
 });
 
 router.post('/agenda', async (req, res) => {
-  if (denyUnlessFlag(req, res, 'flag_camion_pluma', 'Solo control de agenda (perfil Camión Pluma) puede programar')) return;
+  const can = hasUserFlag(req.auth?.user, 'flag_camion_pluma')
+    || await hasPermisoEspecial(req.db, req.auth.user, 'camion_agenda_control');
+  if (!can) {
+    return res.status(403).json({ success: false, message: 'Solo control de agenda (Camión Pluma) puede programar' });
+  }
   const b = req.body || {};
   if (!b.fecha || !b.empresa) {
     return res.status(400).json({ success: false, message: 'Empresa y fecha requeridos' });
@@ -544,7 +580,11 @@ router.post('/agenda', async (req, res) => {
 });
 
 router.post('/agenda/:id/eliminar', async (req, res) => {
-  if (denyUnlessFlag(req, res, 'flag_camion_pluma', 'Solo control de agenda puede eliminar servicios')) return;
+  const can = hasUserFlag(req.auth?.user, 'flag_camion_pluma')
+    || await hasPermisoEspecial(req.db, req.auth.user, 'camion_agenda_control');
+  if (!can) {
+    return res.status(403).json({ success: false, message: 'Solo control de agenda puede eliminar servicios' });
+  }
   await req.db.prepare(`DELETE FROM agenda_camion_pluma_v2 WHERE id = ?`).run(Number(req.params.id));
   res.json({ success: true });
 });
@@ -1022,6 +1062,55 @@ router.post('/config/roles/:id/eliminar', async (req, res) => {
     res.json({ success: true, message: 'Rol eliminado' });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message || 'No se pudo eliminar el rol' });
+  }
+});
+
+/* ========== PERMISOS ESPECIALES (liberadores / aprobadores) ========== */
+const permisosEsp = require('../services/permisos-especiales');
+
+router.get('/config/permisos-especiales', async (req, res) => {
+  try {
+    await permisosEsp.initPermisos(req.db);
+    const data = await permisosEsp.listAll(req.db);
+    res.json({ success: true, data });
+  } catch (err) {
+    console.error('permisos-especiales', err);
+    res.status(500).json({ success: false, message: err.message || 'Error', data: [] });
+  }
+});
+
+router.get('/config/permisos-especiales/mios', async (req, res) => {
+  try {
+    await permisosEsp.initPermisos(req.db);
+    const permisos = await permisosEsp.userCodes(req.db, req.auth.userId);
+    res.json({ success: true, data: { permisos } });
+  } catch (err) {
+    res.json({ success: true, data: { permisos: {} } });
+  }
+});
+
+router.post('/config/permisos-especiales/:codigo/usuarios', async (req, res) => {
+  try {
+    const codigo = String(req.params.codigo || '').trim();
+    const usuarioId = Number(req.body?.usuario_id);
+    if (!usuarioId) return res.status(400).json({ success: false, message: 'usuario_id requerido' });
+    await permisosEsp.initPermisos(req.db);
+    await permisosEsp.addUser(req.db, codigo, usuarioId);
+    res.json({ success: true, message: 'Usuario asignado al permiso' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message || 'No se pudo asignar' });
+  }
+});
+
+router.post('/config/permisos-especiales/:codigo/usuarios/:userId/quitar', async (req, res) => {
+  try {
+    const codigo = String(req.params.codigo || '').trim();
+    const usuarioId = Number(req.params.userId);
+    await permisosEsp.initPermisos(req.db);
+    await permisosEsp.removeUser(req.db, codigo, usuarioId);
+    res.json({ success: true, message: 'Usuario quitado del permiso' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message || 'No se pudo quitar' });
   }
 });
 
