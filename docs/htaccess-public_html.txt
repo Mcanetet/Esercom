@@ -1,0 +1,14 @@
+# DO NOT REMOVE. CLOUDLINUX PASSENGER CONFIGURATION BEGIN
+PassengerAppRoot "/home/gosercom/esercom-app"
+PassengerBaseURI "/"
+PassengerNodejs "/home/gosercom/nodevenv/esercom-app/22/bin/node"
+PassengerAppType node
+PassengerStartupFile server/index.js
+PassengerAppLogFile "/home/gosercom/logs/esercom-passenger.log"
+# DO NOT REMOVE. CLOUDLINUX PASSENGER CONFIGURATION END
+
+# Reenviar Authorization a Node (Passenger/Apache a veces lo quita)
+RewriteEngine On
+RewriteCond %{HTTP:Authorization} .
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1

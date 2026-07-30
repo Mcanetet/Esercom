@@ -38,9 +38,13 @@ const Auth = {
       options.headers || {}
     );
     const token = this.getToken();
-    if (token) headers.Authorization = `Bearer ${token}`;
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+      // Algunos proxies/Apache no reenvían Authorization; duplicamos en header custom
+      headers['X-Auth-Token'] = token;
+    }
 
-    const res = await fetch(url, { ...options, headers });
+    const res = await fetch(url, { ...options, headers, cache: 'no-store' });
     const text = await res.text();
     let data = {};
     try {
@@ -50,7 +54,6 @@ const Auth = {
       throw new Error(hint);
     }
     if (res.status === 401) {
-      // Solo cerrar sesión en rutas de auth; no por fallos de módulos opcionales
       const isAuthRoute = String(url).includes('/api/auth/');
       if (isAuthRoute || options.forceLogout) {
         this.logout();

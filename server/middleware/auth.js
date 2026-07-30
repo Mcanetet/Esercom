@@ -45,7 +45,12 @@ async function loadAuthUser(db, userId) {
 
 async function authRequired(req, res, next) {
   const header = req.headers.authorization || '';
-  const token = header.startsWith('Bearer ') ? header.slice(7) : null;
+  let token = header.startsWith('Bearer ') ? header.slice(7) : null;
+  // Fallback si Apache/Passenger no reenvía Authorization
+  if (!token) {
+    const alt = req.headers['x-auth-token'];
+    if (alt) token = String(alt);
+  }
 
   if (!token) {
     return res.status(401).json({ success: false, message: 'No autenticado' });
