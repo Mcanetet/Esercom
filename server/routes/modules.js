@@ -705,23 +705,48 @@ router.get('/config/resumen', async (req, res) => {
 });
 
 router.post('/config/materiales', async (req, res) => {
-  const b = req.body || {};
-  if (!b.codigo || !b.nombre) return res.status(400).json({ success: false, message: 'Código y nombre requeridos' });
-  const info = await req.db.prepare(`
-    INSERT INTO materiales (codigo, nombre, descripcion, unidad, precio, stock)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(b.codigo, b.nombre, b.descripcion || null, b.unidad || 'UN', Number(b.precio) || 0, Number(b.stock) || 0);
-  res.status(201).json({ success: true, data: { id: info.lastInsertRowid } });
+  try {
+    const b = req.body || {};
+    if (!b.codigo || !b.nombre) return res.status(400).json({ success: false, message: 'Código y nombre requeridos' });
+    let info;
+    try {
+      info = await req.db.prepare(`
+        INSERT INTO materiales (codigo, nombre, descripcion, unidad, precio, stock)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(b.codigo, b.nombre, b.descripcion || null, b.unidad || 'UN', Number(b.precio) || 0, Number(b.stock) || 0);
+    } catch (_) {
+      info = await req.db.prepare(`
+        INSERT INTO materiales (codigo, nombre, descripcion, unidad)
+        VALUES (?, ?, ?, ?)
+      `).run(b.codigo, b.nombre, b.descripcion || null, b.unidad || 'UN');
+    }
+    res.status(201).json({ success: true, data: { id: info.lastInsertRowid } });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message || 'No se pudo crear material' });
+  }
 });
 
 router.post('/config/proveedores', async (req, res) => {
-  const b = req.body || {};
-  if (!b.razon_social || !b.rut) return res.status(400).json({ success: false, message: 'Razón social y RUT requeridos' });
-  const info = await req.db.prepare(`
-    INSERT INTO proveedores (razon_social, rut, email, telefono, direccion)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(b.razon_social, b.rut, b.email || null, b.telefono || null, b.direccion || null);
-  res.status(201).json({ success: true, data: { id: info.lastInsertRowid } });
+  try {
+    const b = req.body || {};
+    const nombre = b.razon_social || b.nombre;
+    if (!nombre || !b.rut) return res.status(400).json({ success: false, message: 'Razón social y RUT requeridos' });
+    let info;
+    try {
+      info = await req.db.prepare(`
+        INSERT INTO proveedores (razon_social, rut, email, telefono, direccion)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(nombre, b.rut, b.email || null, b.telefono || null, b.direccion || null);
+    } catch (_) {
+      info = await req.db.prepare(`
+        INSERT INTO proveedores (nombre, rut, email, telefono, direccion)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(nombre, b.rut, b.email || null, b.telefono || null, b.direccion || null);
+    }
+    res.status(201).json({ success: true, data: { id: info.lastInsertRowid } });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message || 'No se pudo crear proveedor' });
+  }
 });
 
 router.post('/config/cecos', async (req, res) => {

@@ -78,6 +78,11 @@ async function migrateUserFlags(db) {
       ['flag_camion_pluma', 'TINYINT NOT NULL DEFAULT 0'],
       ['flag_aprobador_salida', 'TINYINT NOT NULL DEFAULT 0']
     ]);
+    await ensureMysqlColumns(db, 'materiales', [
+      ['precio', 'DECIMAL(15,2) DEFAULT 0'],
+      ['stock', 'DECIMAL(15,2) DEFAULT 0'],
+      ['categoria', 'VARCHAR(255) NULL']
+    ]);
     // Angel IA (solo ESERCOM; no existe en PHP)
     try {
       await db.exec(`
