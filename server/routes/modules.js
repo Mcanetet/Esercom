@@ -1070,12 +1070,22 @@ const permisosEsp = require('../services/permisos-especiales');
 
 router.get('/config/permisos-especiales', async (req, res) => {
   try {
-    await permisosEsp.initPermisos(req.db);
+    try { await permisosEsp.initPermisos(req.db); } catch (err) {
+      console.warn('permisos-especiales init:', err.message);
+    }
     const data = await permisosEsp.listAll(req.db);
     res.json({ success: true, data });
   } catch (err) {
     console.error('permisos-especiales', err);
-    res.status(500).json({ success: false, message: err.message || 'Error', data: [] });
+    const fallback = (permisosEsp.CATALOGO || []).map((c, i) => ({
+      ...c,
+      usuario_id: null,
+      activo: 1,
+      orden: (i + 1) * 10,
+      usuarios: [],
+      flag: permisosEsp.FLAG_BY_CODIGO?.[c.codigo] || null
+    }));
+    res.json({ success: true, data: fallback, warning: err.message });
   }
 });
 

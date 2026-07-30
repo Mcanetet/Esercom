@@ -113,6 +113,19 @@ const FLAG_BY_CODIGO = Object.fromEntries(
   CATALOGO.filter((c) => c.flag).map((c) => [c.codigo, c.flag])
 );
 
+async function hasColumn(db, table, col) {
+  if (db.driver !== 'mysql') return true;
+  try {
+    const row = await db.prepare(`
+      SELECT COUNT(*) AS c FROM information_schema.columns
+      WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?
+    `).get(table, col);
+    return !!(row && Number(row.c) > 0);
+  } catch (_) {
+    return false;
+  }
+}
+
 async function migrateLiberadoresColumns(db) {
   if (db.driver !== 'mysql') return;
   const cols = [
@@ -200,19 +213,25 @@ async function seedCatalog(db) {
   for (let i = 0; i < CATALOGO.length; i++) {
     const c = CATALOGO[i];
     const orden = (i + 1) * 10;
-    try {
-      if (db.driver === 'mysql') {
+    let inserted = false;
+    if (db.driver === 'mysql' && await hasColumn(db, 'liberadores_config', 'titulo')) {
+      try {
         await db.prepare(`
           INSERT IGNORE INTO liberadores_config (codigo, modulo, titulo, descripcion, activo, orden)
           VALUES (?, ?, ?, ?, 1, ?)
         `).run(c.codigo, c.modulo, c.titulo, c.descripcion, orden);
-      } else {
+        inserted = true;
+      } catch (_) { /* fallback abajo */ }
+    } else if (db.driver !== 'mysql') {
+      try {
         await db.prepare(`
           INSERT OR IGNORE INTO liberadores_config (codigo, modulo, titulo, descripcion, activo, orden)
           VALUES (?, ?, ?, ?, 1, ?)
         `).run(c.codigo, c.modulo, c.titulo, c.descripcion, orden);
-      }
-    } catch (_) {
+        inserted = true;
+      } catch (_) { /* fallback */ }
+    }
+    if (!inserted) {
       try {
         if (db.driver === 'mysql') {
           await db.prepare(`INSERT IGNORE INTO liberadores_config (codigo) VALUES (?)`).run(c.codigo);
@@ -275,15 +294,9 @@ async function seedKnownUsers(db) {
 
   try {
     if (db.driver === 'mysql') {
-      await db.prepare(`
-        INSERT IGNORE INTO liberadores_config (codigo, modulo, titulo, descripcion, activo, orden)
-        VALUES ('_seed_users_done', '_', 'Seed', NULL, 0, 9999)
-      `).run();
+      await db.prepare(`INSERT IGNORE INTO liberadores_config (codigo) VALUES ('_seed_users_done')`).run();
     } else {
-      await db.prepare(`
-        INSERT OR IGNORE INTO liberadores_config (codigo, modulo, titulo, descripcion, activo, orden)
-        VALUES ('_seed_users_done', '_', 'Seed', NULL, 0, 9999)
-      `).run();
+      await db.prepare(`INSERT OR IGNORE INTO liberadores_config (codigo) VALUES ('_seed_users_done')`).run();
     }
   } catch (_) { /* ignore */ }
 }
@@ -445,9 +458,15 @@ async function userCodes(db, usuarioId) {
 }
 
 async function initPermisos(db) {
-  await ensureTables(db);
-  await seedCatalog(db);
-  await seedKnownUsers(db);
+  try { await ensureTables(db); } catch (err) {
+    console.warn('[permisos] ensureTables:', err.message);
+  }
+  try { await seedCatalog(db); } catch (err) {
+    console.warn('[permisos] seedCatalog:', err.message);
+  }
+  try { await seedKnownUsers(db); } catch (err) {
+    console.warn('[permisos] seedKnownUsers:', err.message);
+  }
 }
 
 module.exports = {

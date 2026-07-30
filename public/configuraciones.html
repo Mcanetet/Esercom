@@ -6,7 +6,7 @@
   <title>Configuraciones - ESERCOM</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <link href="/css/app.css?v=cfg5" rel="stylesheet">
+  <link href="/css/app.css?v=cfg6" rel="stylesheet">
 </head>
 <body>
   <script src="/js/auth.js?v=pages2"></script>
@@ -48,6 +48,12 @@
       return parts.join(' ') || '<span class="muted">—</span>';
     }
 
+    const ROLE_CB_PREFIX = 'rf_';
+
+    function rolePageCbId(key) {
+      return ROLE_CB_PREFIX + PagesCatalog.pageCheckboxId(key);
+    }
+
     function renderRolePagesCheckboxes() {
       const pages = window.PAGES_CATALOG || [];
       return `
@@ -62,7 +68,7 @@
         <div class="role-pages-grid" id="rPagesGrid">
           ${pages.map((p) => `
             <label class="role-page-check">
-              <input type="checkbox" id="${PagesCatalog.pageCheckboxId(p.key)}" data-page-key="${p.key}">
+              <input type="checkbox" id="${rolePageCbId(p.key)}" data-page-key="${p.key}">
               <span>${p.label}</span>
             </label>
           `).join('')}
@@ -77,7 +83,7 @@
       const rAll = document.getElementById('rAllPages');
       if (rAll) rAll.checked = all;
       (window.PAGES_CATALOG || []).forEach((p) => {
-        const el = document.getElementById(PagesCatalog.pageCheckboxId(p.key));
+        const el = document.getElementById(rolePageCbId(p.key));
         if (!el) return;
         el.checked = all || arr.some((x) => PagesCatalog.keysMatch(x, p.key));
         el.disabled = all;
@@ -87,7 +93,7 @@
     function readRolePages() {
       if (document.getElementById('rAllPages')?.checked) return ['*'];
       const selected = (window.PAGES_CATALOG || [])
-        .filter((p) => document.getElementById(PagesCatalog.pageCheckboxId(p.key))?.checked)
+        .filter((p) => document.getElementById(rolePageCbId(p.key))?.checked)
         .map((p) => p.key);
       if (!selected.length) throw new Error('Selecciona al menos una página o marca Acceso total');
       return selected;
@@ -98,7 +104,7 @@
       rAll?.addEventListener('change', () => {
         const on = rAll.checked;
         (window.PAGES_CATALOG || []).forEach((p) => {
-          const el = document.getElementById(PagesCatalog.pageCheckboxId(p.key));
+          const el = document.getElementById(rolePageCbId(p.key));
           if (!el) return;
           el.disabled = on;
           if (on) el.checked = true;
@@ -107,17 +113,31 @@
       document.getElementById('rPagesSelectAll')?.addEventListener('click', () => {
         if (rAll) rAll.checked = false;
         (window.PAGES_CATALOG || []).forEach((p) => {
-          const el = document.getElementById(PagesCatalog.pageCheckboxId(p.key));
+          const el = document.getElementById(rolePageCbId(p.key));
           if (el) { el.disabled = false; el.checked = true; }
         });
       });
       document.getElementById('rPagesSelectNone')?.addEventListener('click', () => {
         if (rAll) rAll.checked = false;
         (window.PAGES_CATALOG || []).forEach((p) => {
-          const el = document.getElementById(PagesCatalog.pageCheckboxId(p.key));
+          const el = document.getElementById(rolePageCbId(p.key));
           if (el) { el.disabled = false; el.checked = false; }
         });
       });
+    }
+
+    function openRoleForm(editRole) {
+      resetRoleForm(editRole);
+      openModal('modalRoleForm');
+    }
+
+    function resetRoleForm(editRole) {
+      rId.value = editRole ? editRole.id : '';
+      roleFormTitle.textContent = editRole ? `Editar rol: ${editRole.nombre}` : 'Nuevo rol';
+      rNombre.value = editRole?.nombre || '';
+      rDesc.value = editRole?.descripcion || '';
+      setRolePages(editRole?.paginas_permitidas || ['home.html', 'solicitud-salida-materiales.html']);
+      btnRoleSave.textContent = editRole ? 'Guardar cambios' : 'Crear rol';
     }
 
     function renderPermisosList() {
@@ -312,34 +332,22 @@
           </div>
         </div>
 
-        <!-- Modal Roles -->
+        <!-- Modal Roles (lista) -->
         <div class="cfg-modal" id="modalRoles" role="dialog" aria-modal="true">
           <div class="cfg-modal-backdrop" data-close></div>
-          <div class="cfg-modal-panel">
+          <div class="cfg-modal-panel cfg-modal-sm">
             <header class="cfg-modal-head">
               <div>
                 <h2>Roles</h2>
-                <p>Define roles y permisos de acceso por página</p>
+                <p>Permisos de acceso por página</p>
               </div>
               <button type="button" class="cfg-modal-x" data-close aria-label="Cerrar">&times;</button>
             </header>
             <div class="cfg-modal-body">
-              <form id="roleForm" class="cfg-inline-form" style="flex-direction:column;align-items:stretch">
-                <input type="hidden" id="rId">
-                <div class="form-row cols-2">
-                  <div class="form-group"><label>Nombre *</label><input id="rNombre" required placeholder="Ej: Bodeguero"></div>
-                  <div class="form-group"><label>Descripción</label><input id="rDesc" placeholder="Opcional"></div>
-                </div>
-                <div class="form-group">
-                  <label>Páginas permitidas</label>
-                  ${renderRolePagesCheckboxes()}
-                </div>
-                <div class="cfg-modal-footer" style="border:0;padding-top:0;margin-top:0">
-                  <button type="button" class="btn btn-secondary" id="btnRoleCancel" hidden>Cancelar edición</button>
-                  <button type="submit" class="btn btn-primary" id="btnRoleSave">Crear rol</button>
-                </div>
-              </form>
-              <div class="table-wrap" style="margin-top:1rem;max-height:280px;overflow:auto">
+              <div class="cfg-modal-actions">
+                <button type="button" class="btn btn-primary" id="btnNewRole"><i class="fas fa-plus"></i> Nuevo rol</button>
+              </div>
+              <div class="table-wrap" style="max-height:420px;overflow:auto">
                 <table class="data">
                   <thead><tr><th>Rol</th><th>Descripción</th><th>Páginas</th><th></th></tr></thead>
                   <tbody>
@@ -363,6 +371,37 @@
                   </tbody>
                 </table>
               </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Modal crear/editar rol -->
+        <div class="cfg-modal cfg-modal-stack" id="modalRoleForm" role="dialog" aria-modal="true">
+          <div class="cfg-modal-backdrop" data-close-roleform></div>
+          <div class="cfg-modal-panel">
+            <header class="cfg-modal-head">
+              <div>
+                <h2 id="roleFormTitle">Nuevo rol</h2>
+                <p>Nombre, descripción y páginas permitidas</p>
+              </div>
+              <button type="button" class="cfg-modal-x" data-close-roleform aria-label="Cerrar">&times;</button>
+            </header>
+            <div class="cfg-modal-body">
+              <form id="roleForm" class="cfg-inline-form" style="flex-direction:column;align-items:stretch">
+                <input type="hidden" id="rId">
+                <div class="form-row cols-2">
+                  <div class="form-group"><label>Nombre *</label><input id="rNombre" required placeholder="Ej: Bodeguero"></div>
+                  <div class="form-group"><label>Descripción</label><input id="rDesc" placeholder="Opcional"></div>
+                </div>
+                <div class="form-group">
+                  <label>Páginas permitidas</label>
+                  ${renderRolePagesCheckboxes()}
+                </div>
+                <div class="cfg-modal-footer">
+                  <button type="button" class="btn btn-secondary" data-close-roleform>Cancelar</button>
+                  <button type="submit" class="btn btn-primary" id="btnRoleSave">Crear rol</button>
+                </div>
+              </form>
             </div>
           </div>
         </div>
@@ -542,6 +581,14 @@
           openModal('modalUsers');
         };
       });
+      document.querySelectorAll('[data-close-roleform]').forEach((el) => {
+        el.onclick = () => {
+          closeModal('modalRoleForm');
+          openModal('modalRoles');
+        };
+      });
+
+      btnNewRole.onclick = () => openRoleForm(null);
 
       btnNewUser.onclick = () => {
         resetUserForm(null);
@@ -604,26 +651,10 @@
 
       bindRolePagesUi();
 
-      function resetRoleForm() {
-        rId.value = '';
-        rNombre.value = '';
-        rDesc.value = '';
-        setRolePages(['home.html', 'solicitud-salida-materiales.html']);
-        btnRoleSave.textContent = 'Crear rol';
-        btnRoleCancel.hidden = true;
-      }
-
-      btnRoleCancel.onclick = () => resetRoleForm();
-
       document.querySelectorAll('[data-edit-role]').forEach((btn) => {
         btn.onclick = () => {
           const r = JSON.parse(decodeURIComponent(btn.getAttribute('data-edit-role')));
-          rId.value = r.id;
-          rNombre.value = r.nombre || '';
-          rDesc.value = r.descripcion || '';
-          setRolePages(r.paginas_permitidas);
-          btnRoleSave.textContent = 'Guardar cambios';
-          btnRoleCancel.hidden = false;
+          openRoleForm(r);
         };
       });
 
@@ -656,6 +687,7 @@
             await Auth.api('/api/modulos/config/roles', { method: 'POST', body: JSON.stringify(payload) });
             UI.flash('Rol creado');
           }
+          closeModal('modalRoleForm');
           boot().then(() => openModal('modalRoles'));
         } catch (err) { UI.flash(err.message, true); }
       };
