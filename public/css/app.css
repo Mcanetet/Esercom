@@ -1391,6 +1391,8 @@ body.modal-open { overflow: hidden; }
   animation: cfgModalIn 0.22s ease;
 }
 .cfg-modal-sm { width: min(560px, 100%); }
+.cfg-modal-md { width: min(720px, 100%); }
+.cfg-modal-lg { width: min(960px, 100%); }
 @keyframes cfgModalIn {
   from { transform: translateY(18px); opacity: 0.6; }
   to { transform: translateY(0); opacity: 1; }
@@ -1437,9 +1439,14 @@ body.modal-open { overflow: hidden; }
 }
 .cfg-row-actions {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 0.35rem;
   justify-content: flex-end;
+  min-width: 11rem;
+  white-space: nowrap;
+}
+.data .cfg-row-actions .btn-sm {
+  flex-shrink: 0;
 }
 .btn-danger {
   background: #dc2626;
@@ -1524,8 +1531,67 @@ body.modal-open { overflow: hidden; }
 .perm-add {
   display: flex;
   gap: 0.5rem;
-  flex-wrap: wrap;
-  align-items: center;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+}
+.perm-user-picker {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+.perm-user-search {
+  width: 100%;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 0.88rem;
+}
+.perm-user-search:focus {
+  outline: none;
+  border-color: #0ea5e9;
+  box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.15);
+}
+.perm-user-dropdown {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 20;
+  max-height: 220px;
+  overflow: auto;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+}
+.perm-user-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  width: 100%;
+  padding: 0.5rem 0.65rem;
+  border: 0;
+  border-bottom: 1px solid #f1f5f9;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+.perm-user-option:hover { background: #f0f9ff; }
+.perm-user-option-name { font-size: 0.88rem; font-weight: 600; color: #0f172a; }
+.perm-user-option-meta { font-size: 0.75rem; color: #64748b; }
+.perm-user-empty {
+  padding: 0.65rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+  text-align: center;
+}
+.perm-add > .btn {
+  flex-shrink: 0;
+  align-self: stretch;
+  min-width: 5.5rem;
 }
 .perm-add select {
   flex: 1;

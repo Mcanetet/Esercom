@@ -6,7 +6,7 @@
   <title>Configuraciones - ESERCOM</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <link href="/css/app.css?v=cfg7" rel="stylesheet">
+  <link href="/css/app.css?v=cfg8" rel="stylesheet">
 </head>
 <body>
   <script src="/js/auth.js?v=pages2"></script>
@@ -151,6 +151,24 @@
       btnRoleSave.textContent = editRole ? 'Guardar cambios' : 'Crear rol';
     }
 
+    function escapeHtml(s) {
+      return String(s || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function filterUsersByQuery(q, limit = 15) {
+      const n = String(q || '').trim().toLowerCase();
+      const list = state.users || [];
+      if (!n) return list.slice(0, limit);
+      return list.filter((u) => {
+        const hay = `${u.nombre} ${u.apellido} ${u.email || ''} ${u.cargo || ''}`.toLowerCase();
+        return hay.includes(n);
+      }).slice(0, limit);
+    }
+
     function renderPermisosList() {
       const list = state.permisos || [];
       if (!list.length) {
@@ -162,39 +180,86 @@
         if (!byMod[m]) byMod[m] = [];
         byMod[m].push(p);
       });
-      const userOpts = state.users.map((u) =>
-        `<option value="${u.id}">${u.nombre} ${u.apellido}</option>`
-      ).join('');
       return Object.keys(byMod).map((mod) => `
         <div class="perm-mod">
           <h3 class="perm-mod-title">${mod}</h3>
           ${byMod[mod].map((p) => `
             <div class="perm-card" data-codigo="${p.codigo}">
               <div class="perm-card-head">
-                <strong>${p.titulo}</strong>
-                <code class="perm-code">${p.codigo}</code>
+                <strong>${escapeHtml(p.titulo)}</strong>
+                <code class="perm-code">${escapeHtml(p.codigo)}</code>
               </div>
-              <p class="perm-desc">${p.descripcion || ''}</p>
+              <p class="perm-desc">${escapeHtml(p.descripcion || '')}</p>
               <div class="perm-users">
                 ${(p.usuarios || []).map((u) => `
                   <span class="perm-chip">
-                    ${u.nombre}${u.titular ? ' <em>(titular)</em>' : ''}
+                    ${escapeHtml(u.nombre)}${u.titular ? ' <em>(titular)</em>' : ''}
                     <button type="button" class="perm-chip-x" title="Quitar"
                       data-quitar-perm="${p.codigo}" data-quitar-uid="${u.usuario_id}">&times;</button>
                   </span>
                 `).join('') || '<span class="muted">Sin personas asignadas</span>'}
               </div>
               <div class="perm-add">
-                <select data-add-select="${p.codigo}">
-                  <option value="">— Agregar persona —</option>
-                  ${userOpts}
-                </select>
+                <div class="perm-user-picker">
+                  <input type="text" class="perm-user-search" placeholder="Buscar persona por nombre o email…"
+                    autocomplete="off" data-perm-search="${p.codigo}">
+                  <input type="hidden" data-perm-user-id="${p.codigo}" value="">
+                  <div class="perm-user-dropdown" data-perm-dropdown="${p.codigo}" hidden></div>
+                </div>
                 <button type="button" class="btn btn-primary btn-sm" data-add-perm="${p.codigo}">Asignar</button>
               </div>
             </div>
           `).join('')}
         </div>
       `).join('');
+    }
+
+    function bindPermUserSearch() {
+      document.querySelectorAll('.perm-user-search').forEach((input) => {
+        const codigo = input.getAttribute('data-perm-search');
+        const dropdown = document.querySelector(`[data-perm-dropdown="${codigo}"]`);
+        const hidden = document.querySelector(`[data-perm-user-id="${codigo}"]`);
+        if (!dropdown || !hidden) return;
+
+        const showList = (items) => {
+          if (!items.length) {
+            dropdown.innerHTML = '<div class="perm-user-empty">Sin resultados</div>';
+          } else {
+            dropdown.innerHTML = items.map((u) => {
+              const label = `${u.nombre} ${u.apellido}`.trim();
+              return `<button type="button" class="perm-user-option" data-pick-uid="${u.id}">
+                <span class="perm-user-option-name">${escapeHtml(label)}</span>
+                <span class="perm-user-option-meta">${escapeHtml(u.email || '')}${u.cargo ? ' · ' + escapeHtml(u.cargo) : ''}</span>
+              </button>`;
+            }).join('');
+            dropdown.querySelectorAll('.perm-user-option').forEach((btn, idx) => {
+              const u = items[idx];
+              const label = `${u.nombre} ${u.apellido}`.trim();
+              btn.onclick = () => {
+                hidden.value = String(u.id);
+                input.value = label;
+                dropdown.hidden = true;
+              };
+            });
+          }
+          dropdown.hidden = false;
+        };
+
+        input.oninput = () => {
+          hidden.value = '';
+          showList(filterUsersByQuery(input.value));
+        };
+        input.onfocus = () => showList(filterUsersByQuery(input.value));
+      });
+
+      if (!window.__permPickerCloseBound) {
+        window.__permPickerCloseBound = true;
+        document.addEventListener('click', (e) => {
+          if (!e.target.closest('.perm-user-picker')) {
+            document.querySelectorAll('.perm-user-dropdown').forEach((d) => { d.hidden = true; });
+          }
+        });
+      }
     }
 
     function openModal(id) {
@@ -310,7 +375,7 @@
         <!-- Modal Usuarios -->
         <div class="cfg-modal" id="modalUsers" role="dialog" aria-modal="true">
           <div class="cfg-modal-backdrop" data-close></div>
-          <div class="cfg-modal-panel">
+          <div class="cfg-modal-panel cfg-modal-lg">
             <header class="cfg-modal-head">
               <div>
                 <h2>Usuarios y perfiles</h2>
@@ -347,7 +412,7 @@
         <!-- Modal Roles (lista) -->
         <div class="cfg-modal" id="modalRoles" role="dialog" aria-modal="true">
           <div class="cfg-modal-backdrop" data-close></div>
-          <div class="cfg-modal-panel cfg-modal-sm">
+          <div class="cfg-modal-panel cfg-modal-md">
             <header class="cfg-modal-head">
               <div>
                 <h2>Roles</h2>
@@ -453,7 +518,7 @@
         <!-- Modal Permisos especiales -->
         <div class="cfg-modal" id="modalPermisos" role="dialog" aria-modal="true">
           <div class="cfg-modal-backdrop" data-close></div>
-          <div class="cfg-modal-panel">
+          <div class="cfg-modal-panel cfg-modal-lg">
             <header class="cfg-modal-head">
               <div>
                 <h2>Permisos especiales</h2>
@@ -617,12 +682,19 @@
         };
       });
 
+      bindPermUserSearch();
+
       document.querySelectorAll('[data-add-perm]').forEach((btn) => {
         btn.onclick = async () => {
           const codigo = btn.getAttribute('data-add-perm');
-          const sel = document.querySelector(`[data-add-select="${codigo}"]`);
-          const usuarioId = Number(sel?.value || 0);
-          if (!usuarioId) { UI.flash('Elige una persona', true); return; }
+          const hidden = document.querySelector(`[data-perm-user-id="${codigo}"]`);
+          const search = document.querySelector(`[data-perm-search="${codigo}"]`);
+          let usuarioId = Number(hidden?.value || 0);
+          if (!usuarioId && search?.value.trim()) {
+            const match = filterUsersByQuery(search.value, 1)[0];
+            if (match) usuarioId = match.id;
+          }
+          if (!usuarioId) { UI.flash('Busca y selecciona una persona de la lista', true); return; }
           try {
             await Auth.api('/api/modulos/config/permisos-especiales/' + encodeURIComponent(codigo) + '/usuarios', {
               method: 'POST',
