@@ -57,7 +57,7 @@
     async function boot() {
       const content = document.getElementById('app-content');
       try {
-        const [resumen, cecos, mats, provs, users, roles, depts] = await Promise.all([
+        const settled = await Promise.allSettled([
           Auth.api('/api/modulos/config/resumen'),
           UI.loadCecos(),
           UI.loadMateriales(),
@@ -66,15 +66,34 @@
           Auth.api('/api/modulos/config/roles'),
           Auth.api('/api/modulos/config/departamentos')
         ]);
-        const s = resumen.data;
+        const labels = ['resumen', 'cecos', 'materiales', 'proveedores', 'usuarios', 'roles', 'departamentos'];
+        const failed = settled
+          .map((r, i) => (r.status === 'rejected' ? `${labels[i]}: ${r.reason?.message || r.reason}` : null))
+          .filter(Boolean);
+        if (failed.length === settled.length) {
+          throw new Error(failed.join(' · '));
+        }
+        const val = (i, fallback) => (settled[i].status === 'fulfilled' ? settled[i].value : fallback);
+        const resumen = val(0, { data: {} });
+        const cecos = val(1, []);
+        const mats = val(2, []);
+        const provs = val(3, []);
+        const users = val(4, []);
+        const roles = val(5, { data: [] });
+        const depts = val(6, { data: [] });
+        const s = resumen.data || {};
+        const warn = failed.length
+          ? `<div class="alert alert-error">Algunos datos no cargaron:<br>${failed.join('<br>')}</div>`
+          : '';
 
         content.innerHTML = `
           <div id="flash"></div>
+          ${warn}
           <div class="stats-grid">
-            <div class="stat-card"><div class="stat-label">Usuarios</div><div class="stat-value">${s.usuarios}</div></div>
-            <div class="stat-card"><div class="stat-label">CECOs</div><div class="stat-value">${s.cecos}</div></div>
-            <div class="stat-card"><div class="stat-label">Materiales</div><div class="stat-value">${s.materiales}</div></div>
-            <div class="stat-card"><div class="stat-label">Proveedores</div><div class="stat-value">${s.proveedores}</div></div>
+            <div class="stat-card"><div class="stat-label">Usuarios</div><div class="stat-value">${s.usuarios ?? '—'}</div></div>
+            <div class="stat-card"><div class="stat-label">CECOs</div><div class="stat-value">${s.cecos ?? '—'}</div></div>
+            <div class="stat-card"><div class="stat-label">Materiales</div><div class="stat-value">${s.materiales ?? '—'}</div></div>
+            <div class="stat-card"><div class="stat-label">Proveedores</div><div class="stat-value">${s.proveedores ?? '—'}</div></div>
           </div>
 
           <div class="card">

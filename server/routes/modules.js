@@ -675,18 +675,33 @@ router.post('/facturas/:id/decidir', async (req, res) => {
 });
 
 /* ========== CONFIGURACIONES ========== */
+async function safeCount(db, sql) {
+  try {
+    const row = await db.prepare(sql).get();
+    return Number(row?.c || 0);
+  } catch (err) {
+    console.error('[config/resumen]', err.message);
+    return 0;
+  }
+}
+
 router.get('/config/resumen', async (req, res) => {
-  res.json({
-    success: true,
-    data: {
-      usuarios: (await req.db.prepare(`SELECT COUNT(*) AS c FROM usuarios WHERE activo = 1`).get()).c,
-      roles: (await req.db.prepare(`SELECT COUNT(*) AS c FROM roles WHERE activo = 1`).get()).c,
-      cecos: (await req.db.prepare(`SELECT COUNT(*) AS c FROM cecos WHERE activo = 1`).get()).c,
-      materiales: (await req.db.prepare(`SELECT COUNT(*) AS c FROM materiales WHERE activo = 1`).get()).c,
-      proveedores: (await req.db.prepare(`SELECT COUNT(*) AS c FROM proveedores WHERE activo = 1`).get()).c,
-      bodegas: (await req.db.prepare(`SELECT COUNT(*) AS c FROM bodegas WHERE activo = 1`).get()).c
-    }
-  });
+  try {
+    res.json({
+      success: true,
+      data: {
+        usuarios: await safeCount(req.db, `SELECT COUNT(*) AS c FROM usuarios WHERE activo = 1`),
+        roles: await safeCount(req.db, `SELECT COUNT(*) AS c FROM roles`),
+        cecos: await safeCount(req.db, `SELECT COUNT(*) AS c FROM cecos WHERE activo = 1`),
+        materiales: await safeCount(req.db, `SELECT COUNT(*) AS c FROM materiales WHERE activo = 1`),
+        proveedores: await safeCount(req.db, `SELECT COUNT(*) AS c FROM proveedores WHERE activo = 1`),
+        bodegas: await safeCount(req.db, `SELECT COUNT(*) AS c FROM bodegas WHERE activo = 1`)
+      }
+    });
+  } catch (err) {
+    console.error('config/resumen', err);
+    res.status(500).json({ success: false, message: err.message || 'Error al cargar resumen' });
+  }
 });
 
 router.post('/config/materiales', async (req, res) => {
@@ -804,14 +819,33 @@ router.post('/config/usuarios/:id', async (req, res) => {
 });
 
 router.get('/config/roles', async (req, res) => {
-  res.json({ success: true, data: await req.db.prepare(`SELECT * FROM roles WHERE activo = 1`).all() });
+  try {
+    let data;
+    try {
+      data = await req.db.prepare(`SELECT * FROM roles WHERE activo = 1`).all();
+    } catch (_) {
+      data = await req.db.prepare(`SELECT * FROM roles`).all();
+    }
+    res.json({ success: true, data: data || [] });
+  } catch (err) {
+    console.error('config/roles', err);
+    res.status(500).json({ success: false, message: err.message || 'No se pudieron cargar roles', data: [] });
+  }
 });
 
 router.get('/config/departamentos', async (req, res) => {
-  res.json({
-    success: true,
-    data: await req.db.prepare(`SELECT id, nombre FROM departamentos WHERE activo = 1 ORDER BY nombre`).all()
-  });
+  try {
+    let data;
+    try {
+      data = await req.db.prepare(`SELECT id, nombre FROM departamentos WHERE activo = 1 ORDER BY nombre`).all();
+    } catch (_) {
+      data = await req.db.prepare(`SELECT id, nombre FROM departamentos ORDER BY nombre`).all();
+    }
+    res.json({ success: true, data: data || [] });
+  } catch (err) {
+    console.error('config/departamentos', err);
+    res.json({ success: true, data: [] });
+  }
 });
 
 /* ========== REPORTES ========== */

@@ -46,7 +46,8 @@ const Auth = {
     try {
       data = text ? JSON.parse(text) : {};
     } catch {
-      throw new Error('Respuesta inválida del servidor');
+      const hint = String(text || '').trim().slice(0, 180) || 'Respuesta inválida del servidor';
+      throw new Error(hint);
     }
     if (res.status === 401) {
       this.logout();
