@@ -204,7 +204,7 @@ router.post('/recetas/calcular', async (req, res) => {
   const tipoId = Number(req.body?.tipo_id);
   const obras = Number(req.body?.cantidad_obras) || 1;
   const insumos = await req.db.prepare(`
-    SELECT i.*, m.codigo AS material_codigo, m.nombre AS material_nombre, m.stock
+    SELECT i.*, m.codigo AS material_codigo, m.nombre AS material_nombre
     FROM materiales_receta_insumos i
     LEFT JOIN materiales m ON m.id = i.material_id
     WHERE i.tipo_id = ? AND i.activo = 1

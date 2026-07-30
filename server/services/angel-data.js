@@ -26,11 +26,15 @@ async function getDashboardContext(db, company) {
     SELECT COUNT(*) AS c FROM aprobacion_facturas WHERE estado = 'Pendiente'
   `).get()).c;
 
-  const stockBajo = await db.prepare(`
-    SELECT codigo, nombre, stock, unidad FROM materiales
-    WHERE activo = 1 AND stock < 50
-    ORDER BY stock ASC LIMIT 20
-  `).all();
+  const stockBajo = [];
+  try {
+    const rows = await db.prepare(`
+      SELECT codigo, nombre, stock, unidad FROM materiales
+      WHERE activo = 1 AND stock < 50
+      ORDER BY stock ASC LIMIT 20
+    `).all();
+    stockBajo.push(...rows);
+  } catch (_) { /* columna stock puede no existir en MySQL productivo */ }
 
   const porCeco = await db.prepare(`
     SELECT c.codigo, c.nombre,
@@ -58,7 +62,7 @@ async function getDashboardContext(db, company) {
   `).all();
 
   const materialesTop = await db.prepare(`
-    SELECT m.codigo, m.nombre, SUM(d.cantidad) AS cantidad_solicitada, m.unidad, m.stock
+    SELECT m.codigo, m.nombre, SUM(d.cantidad) AS cantidad_solicitada, m.unidad
     FROM solicitudes_detalle d
     JOIN materiales m ON m.id = d.material_id
     JOIN solicitudes_materiales s ON s.id = d.solicitud_id
@@ -169,9 +173,14 @@ async function scanPendientes(db) {
   }
 
   // Stock bajo → bodegueros y admins (roles 1 y 4)
-  const stock = await db.prepare(`
-    SELECT codigo, nombre, stock FROM materiales WHERE activo = 1 AND stock <= 20 LIMIT 15
-  `).all();
+  let stock = [];
+  try {
+    stock = await db.prepare(`
+      SELECT codigo, nombre, stock FROM materiales WHERE activo = 1 AND stock <= 20 LIMIT 15
+    `).all();
+  } catch (_) {
+    stock = [];
+  }
   const destinatariosStock = await db.prepare(`
     SELECT id FROM usuarios WHERE activo = 1 AND rol_id IN (1, 4)
   `).all();
