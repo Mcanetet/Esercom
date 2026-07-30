@@ -1,38 +1,38 @@
 /**
  * Contexto de datos de la empresa para Angel IA
  */
-function getDashboardContext(db, company) {
-  const pendientesMat = db.prepare(`
+async function getDashboardContext(db, company) {
+  const pendientesMat = (await db.prepare(`
     SELECT COUNT(*) AS c FROM solicitudes_materiales
     WHERE eliminado = 0 AND estado_id IN (1,2,3,4,5)
-  `).get().c;
+  `).get()).c;
 
-  const pendientesCompras = db.prepare(`
+  const pendientesCompras = (await db.prepare(`
     SELECT COUNT(*) AS c FROM solicitudes_compras
     WHERE eliminado = 0 AND estado IN ('Pendiente','En revisión')
-  `).get().c;
+  `).get()).c;
 
-  const ssggAbiertos = db.prepare(`
+  const ssggAbiertos = (await db.prepare(`
     SELECT COUNT(*) AS c FROM servicios_generales
     WHERE eliminado = 0 AND estado IN ('Abierto','En proceso')
-  `).get().c;
+  `).get()).c;
 
-  const telecomPend = db.prepare(`
+  const telecomPend = (await db.prepare(`
     SELECT COUNT(*) AS c FROM requerimientos_telecom
     WHERE eliminado = 0 AND estado IN ('Pendiente','Asignado')
-  `).get().c;
+  `).get()).c;
 
-  const facturasPend = db.prepare(`
+  const facturasPend = (await db.prepare(`
     SELECT COUNT(*) AS c FROM aprobacion_facturas WHERE estado = 'Pendiente'
-  `).get().c;
+  `).get()).c;
 
-  const stockBajo = db.prepare(`
+  const stockBajo = await db.prepare(`
     SELECT codigo, nombre, stock, unidad FROM materiales
     WHERE activo = 1 AND stock < 50
     ORDER BY stock ASC LIMIT 20
   `).all();
 
-  const porCeco = db.prepare(`
+  const porCeco = await db.prepare(`
     SELECT c.codigo, c.nombre,
            COUNT(s.id) AS solicitudes,
            SUM(CASE WHEN s.estado_id IN (1,2,3,4,5) THEN 1 ELSE 0 END) AS activas,
@@ -46,7 +46,7 @@ function getDashboardContext(db, company) {
     ORDER BY c.codigo
   `).all();
 
-  const recientes = db.prepare(`
+  const recientes = await db.prepare(`
     SELECT s.codigo, s.numero_proyecto, e.nombre AS estado, s.fecha_solicitud,
            c.codigo AS ceco, u.nombre || ' ' || u.apellido AS solicitante
     FROM solicitudes_materiales s
@@ -57,7 +57,7 @@ function getDashboardContext(db, company) {
     ORDER BY s.id DESC LIMIT 15
   `).all();
 
-  const materialesTop = db.prepare(`
+  const materialesTop = await db.prepare(`
     SELECT m.codigo, m.nombre, SUM(d.cantidad) AS cantidad_solicitada, m.unidad, m.stock
     FROM solicitudes_detalle d
     JOIN materiales m ON m.id = d.material_id
@@ -86,8 +86,8 @@ function getDashboardContext(db, company) {
   };
 }
 
-function getMovimientosSemana(db) {
-  return db.prepare(`
+async function getMovimientosSemana(db) {
+  return await db.prepare(`
     SELECT s.codigo, s.numero_proyecto, s.fecha_solicitud, s.ubicacion_entrega,
            e.nombre AS estado, c.codigo AS ceco_codigo, c.nombre AS ceco_nombre,
            jp.nombre || ' ' || jp.apellido AS jefe_proyecto, jp.email AS jefe_email,
@@ -111,11 +111,11 @@ function getMovimientosSemana(db) {
  * Genera alertas dirigidas a usuarios concretos (no al home).
  * usuario_id: destinatario de la alerta
  */
-function scanPendientes(db) {
+async function scanPendientes(db) {
   const alerts = [];
 
   // Solicitudes de materiales pendientes → aviso al JP y al solicitante
-  const mat = db.prepare(`
+  const mat = await db.prepare(`
     SELECT s.id, s.codigo, s.numero_proyecto, s.fecha_solicitud, s.solicitante_id,
            COALESCE(s.jefe_proyecto_id, c.jefe_proyecto_id) AS jefe_id,
            e.nombre AS estado
@@ -149,7 +149,7 @@ function scanPendientes(db) {
   }
 
   // Compras pendientes → solicitante y jefe
-  const compras = db.prepare(`
+  const compras = await db.prepare(`
     SELECT id, numero_solicitud, fecha_solicitud, solicitante_id, jefe_proyecto_id, estado
     FROM solicitudes_compras
     WHERE eliminado = 0 AND estado IN ('Pendiente', 'En revisión')
@@ -169,10 +169,10 @@ function scanPendientes(db) {
   }
 
   // Stock bajo → bodegueros y admins (roles 1 y 4)
-  const stock = db.prepare(`
+  const stock = await db.prepare(`
     SELECT codigo, nombre, stock FROM materiales WHERE activo = 1 AND stock <= 20 LIMIT 15
   `).all();
-  const destinatariosStock = db.prepare(`
+  const destinatariosStock = await db.prepare(`
     SELECT id FROM usuarios WHERE activo = 1 AND rol_id IN (1, 4)
   `).all();
   for (const r of stock) {
@@ -190,7 +190,7 @@ function scanPendientes(db) {
   }
 
   // Facturas pendientes → aprobador del lote + admins
-  const facturas = db.prepare(`
+  const facturas = await db.prepare(`
     SELECT f.numero_factura, f.proveedor, f.monto, l.codigo AS lote, l.aprobador_id
     FROM aprobacion_facturas f
     JOIN aprobacion_facturas_lote l ON l.id = f.lote_id
@@ -209,7 +209,7 @@ function scanPendientes(db) {
   }
 
   // SSGG abiertos → solicitante
-  const ssgg = db.prepare(`
+  const ssgg = await db.prepare(`
     SELECT codigo, titulo, estado, solicitante_id FROM servicios_generales
     WHERE eliminado = 0 AND estado IN ('Abierto', 'En proceso') LIMIT 20
   `).all();

@@ -2,7 +2,7 @@ const jwt = require('jsonwebtoken');
 const config = require('../config');
 const { getDb } = require('../db/tenants');
 
-function authRequired(req, res, next) {
+async function authRequired(req, res, next) {
   const header = req.headers.authorization || '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : null;
 
@@ -18,7 +18,7 @@ function authRequired(req, res, next) {
     }
 
     const db = getDb(payload.empresa);
-    const user = db.prepare(`
+    const user = await db.prepare(`
       SELECT u.id, u.nombre, u.apellido, u.email, u.cargo, u.rol_id, u.departamento_id, u.activo,
              u.flag_checklist, u.flag_flota, u.flag_ssgg, u.flag_camion_pluma, u.flag_aprobador_salida,
              r.nombre AS rol, r.paginas_permitidas, d.nombre AS departamento

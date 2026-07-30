@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Panel Administrador - ESERCOM</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <link href="/css/app.css?v=resp1" rel="stylesheet">
+  <style>
+    .admin-hero {
+      background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 55%, #0c4a6e 100%);
+      color: #fff; border-radius: 12px; padding: 1.1rem 1.15rem; margin-bottom: 1rem;
+    }
+    .admin-hero h2 { margin: 0 0 0.35rem; font-size: 1.05rem; }
+    .admin-hero p { margin: 0; font-size: 0.85rem; opacity: 0.85; }
+    .admin-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr));
+      gap: 0.65rem;
+    }
+    .admin-tile {
+      display: flex; flex-direction: column; gap: 0.35rem;
+      padding: 1rem; border-radius: 12px; border: 1px solid var(--border);
+      background: #fff; text-decoration: none; color: inherit;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .admin-tile:hover {
+      border-color: rgba(14, 165, 233, 0.45);
+      box-shadow: 0 8px 20px -12px rgba(15, 23, 42, 0.25);
+    }
+    .admin-tile i {
+      width: 40px; height: 40px; border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      color: #fff; font-size: 1rem;
+    }
+    .admin-tile strong { font-size: 0.92rem; }
+    .admin-tile span { font-size: 0.78rem; color: var(--muted); line-height: 1.35; }
+  </style>
+</head>
+<body>
+  <script src="/js/auth.js?v=resp1"></script>
+  <script>
+    const user = renderShell('/panel-admin.html', '<i class="fas fa-shield-halved"></i> Panel Administrador', 'Configuración y acceso total');
+
+    async function boot() {
+      const content = document.getElementById('app-content');
+      const rol = String(user?.rol || '').toLowerCase();
+      const ok = user?.rol_id === 1 || rol.includes('admin') || user?.acceso_portal;
+
+      if (!ok) {
+        content.innerHTML = `
+          <div class="alert alert-error">Acceso restringido. Use <a href="/acceso-sistema.html">Acceso Sistema</a> con la clave de administrador.</div>`;
+        return;
+      }
+
+      content.innerHTML = `
+        <div id="flash"></div>
+        <div class="admin-hero">
+          <h2>Administrador · ${user.empresaNombre || user.empresa}</h2>
+          <p>${user.nombreCompleto || user.email} — acceso completo al sistema y configuración de APIs.</p>
+        </div>
+        <div class="admin-grid">
+          <a class="admin-tile" href="/angel-seguridad.html">
+            <i class="fas fa-key" style="background:linear-gradient(135deg,#0ea5e9,#0369a1)"></i>
+            <strong>API OpenAI (Angel IA)</strong>
+            <span>Guardar sk-..., modelo, SMTP y reportes semanales.</span>
+          </a>
+          <a class="admin-tile" href="/configuraciones.html">
+            <i class="fas fa-users-cog" style="background:linear-gradient(135deg,#475569,#334155)"></i>
+            <strong>Usuarios y perfiles</strong>
+            <span>Crear usuarios, flags operativos, materiales y CECOs.</span>
+          </a>
+          <a class="admin-tile" href="/angel-ia.html">
+            <i class="fas fa-robot" style="background:linear-gradient(135deg,#0284c7,#0ea5e9)"></i>
+            <strong>Angel IA</strong>
+            <span>Probar chat y alertas después de configurar la API.</span>
+          </a>
+          <a class="admin-tile" href="/home.html">
+            <i class="fas fa-th-large" style="background:linear-gradient(135deg,#059669,#047857)"></i>
+            <strong>Todos los módulos</strong>
+            <span>Menú principal con acceso a toda la aplicación.</span>
+          </a>
+          <a class="admin-tile" href="/reportes.html">
+            <i class="fas fa-chart-bar" style="background:linear-gradient(135deg,#b45309,#d97706)"></i>
+            <strong>Reportes</strong>
+            <span>Exportaciones y consultas por módulo.</span>
+          </a>
+          <a class="admin-tile" href="/papelera.html">
+            <i class="fas fa-trash-restore" style="background:linear-gradient(135deg,#64748b,#475569)"></i>
+            <strong>Papelera</strong>
+            <span>Restaurar registros eliminados.</span>
+          </a>
+        </div>
+        <p style="margin-top:1.25rem;font-size:0.8rem;color:var(--muted)">
+          Acceso por URL: <code>/acceso-sistema.html</code> · Clave en variable <code>ADMIN_PORTAL_PASSWORD</code> del servidor.
+        </p>`;
+    }
+
+    if (user) boot();
+  </script>
+</body>
+</html>

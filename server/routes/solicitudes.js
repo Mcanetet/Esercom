@@ -4,8 +4,8 @@ const { authRequired } = require('../middleware/auth');
 const router = express.Router();
 router.use(authRequired);
 
-function nextCodigo(db) {
-  const row = db.prepare(`
+async function nextCodigo(db) {
+  const row = await db.prepare(`
     SELECT codigo FROM solicitudes_materiales
     WHERE codigo LIKE 'SOLMAT-%'
     ORDER BY id DESC LIMIT 1
@@ -18,7 +18,7 @@ function nextCodigo(db) {
   return `SOLMAT-${String(n).padStart(5, '0')}`;
 }
 
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   const { estado_id, q, ubicacion } = req.query;
   const params = [];
   let sql = `
@@ -51,12 +51,12 @@ router.get('/', (req, res) => {
   }
 
   sql += ' ORDER BY s.id DESC LIMIT 200';
-  const data = req.db.prepare(sql).all(...params);
+  const data = await req.db.prepare(sql).all(...params);
   res.json({ success: true, data });
 });
 
-router.get('/:id', (req, res) => {
-  const s = req.db.prepare(`
+router.get('/:id', async (req, res) => {
+  const s = await req.db.prepare(`
     SELECT s.*, e.nombre AS estado, e.color AS estado_color,
            c.codigo AS ceco_codigo, c.nombre AS ceco_nombre,
            u.nombre || ' ' || u.apellido AS solicitante, u.email AS solicitante_email,
@@ -73,14 +73,14 @@ router.get('/:id', (req, res) => {
     return res.status(404).json({ success: false, message: 'Solicitud no encontrada' });
   }
 
-  const detalle = req.db.prepare(`
+  const detalle = await req.db.prepare(`
     SELECT d.*, m.codigo AS material_codigo, m.nombre AS material_nombre
     FROM solicitudes_detalle d
     JOIN materiales m ON m.id = d.material_id
     WHERE d.solicitud_id = ?
   `).all(s.id);
 
-  const historial = req.db.prepare(`
+  const historial = await req.db.prepare(`
     SELECT h.*, e.nombre AS estado, u.nombre || ' ' || u.apellido AS usuario
     FROM historial_solicitudes h
     LEFT JOIN estados_solicitud e ON e.id = h.estado_id
@@ -92,7 +92,7 @@ router.get('/:id', (req, res) => {
   res.json({ success: true, data: { ...s, detalle, historial } });
 });
 
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   const body = req.body || {};
   const materiales = Array.isArray(body.materiales) ? body.materiales : [];
 
@@ -106,18 +106,18 @@ router.post('/', (req, res) => {
     return res.status(400).json({ success: false, message: 'Debe agregar al menos un material' });
   }
 
-  const ceco = req.db.prepare('SELECT id, jefe_proyecto_id FROM cecos WHERE id = ? AND activo = 1')
+  const ceco = await req.db.prepare('SELECT id, jefe_proyecto_id FROM cecos WHERE id = ? AND activo = 1')
     .get(Number(body.ceco_id));
   if (!ceco) {
     return res.status(400).json({ success: false, message: 'CECO inválido' });
   }
 
-  const codigo = nextCodigo(req.db);
+  const codigo = await nextCodigo(req.db);
   const ubicacion = body.ubicacion_entrega === 'directo-proveedor' ? 'directo-proveedor' : 'bodega';
   const estadoInicial = ubicacion === 'directo-proveedor' ? 1 : 1;
 
-  const tx = req.db.transaction(() => {
-    const info = req.db.prepare(`
+  const tx = req.db.transaction(async () => {
+    const info = await req.db.prepare(`
       INSERT INTO solicitudes_materiales
         (codigo, ceco_id, estado_id, solicitante_id, jefe_proyecto_id, fecha_requerida,
          bodega_nombre, ubicacion_entrega, observaciones, quien_retira, quien_usa,
@@ -148,13 +148,13 @@ router.post('/', (req, res) => {
     `);
 
     for (const item of materiales) {
-      const mat = req.db.prepare('SELECT id, unidad, precio FROM materiales WHERE id = ? AND activo = 1')
+      const mat = await req.db.prepare('SELECT id, unidad, precio FROM materiales WHERE id = ? AND activo = 1')
         .get(Number(item.material_id));
       if (!mat) throw new Error(`Material inválido: ${item.material_id}`);
       const cantidad = Number(item.cantidad);
       if (!cantidad || cantidad <= 0) throw new Error('Cantidad inválida');
       const precio = Number(item.precio_unitario != null ? item.precio_unitario : mat.precio) || 0;
-      insertDet.run(
+      await insertDet.run(
         solicitudId,
         mat.id,
         cantidad,
@@ -166,7 +166,7 @@ router.post('/', (req, res) => {
       );
     }
 
-    req.db.prepare(`
+    await req.db.prepare(`
       INSERT INTO historial_solicitudes (solicitud_id, estado_id, usuario_id, accion, comentarios)
       VALUES (?, ?, ?, 'Creación', ?)
     `).run(solicitudId, estadoInicial, req.auth.userId, 'Solicitud creada');
@@ -175,7 +175,7 @@ router.post('/', (req, res) => {
   });
 
   try {
-    const id = tx();
+    const id = await tx();
     res.status(201).json({
       success: true,
       message: 'Solicitud creada correctamente',
@@ -186,7 +186,7 @@ router.post('/', (req, res) => {
   }
 });
 
-router.post('/:id/aprobar', (req, res) => {
+router.post('/:id/aprobar', async (req, res) => {
   const user = req.auth?.user;
   const rol = String(user?.rol || '').toLowerCase();
   const esAdmin = user?.rol_id === 1 || rol.includes('admin');
@@ -198,20 +198,20 @@ router.post('/:id/aprobar', (req, res) => {
   }
 
   const id = Number(req.params.id);
-  const s = req.db.prepare('SELECT * FROM solicitudes_materiales WHERE id = ? AND eliminado = 0').get(id);
+  const s = await req.db.prepare('SELECT * FROM solicitudes_materiales WHERE id = ? AND eliminado = 0').get(id);
   if (!s) return res.status(404).json({ success: false, message: 'Solicitud no encontrada' });
   if (s.estado_id !== 1) {
     return res.status(400).json({ success: false, message: 'La solicitud no está pendiente de aprobación' });
   }
 
   const nuevoEstado = s.ubicacion_entrega === 'directo-proveedor' ? 4 : 2;
-  req.db.prepare(`
+  await req.db.prepare(`
     UPDATE solicitudes_materiales
     SET estado_id = ?, fecha_actualizacion = datetime('now')
     WHERE id = ?
   `).run(nuevoEstado, id);
 
-  req.db.prepare(`
+  await req.db.prepare(`
     INSERT INTO historial_solicitudes (solicitud_id, estado_id, usuario_id, accion, comentarios)
     VALUES (?, ?, ?, 'Aprobación', ?)
   `).run(id, nuevoEstado, req.auth.userId, req.body?.comentarios || 'Aprobada');
@@ -219,7 +219,7 @@ router.post('/:id/aprobar', (req, res) => {
   res.json({ success: true, message: 'Solicitud aprobada', estado_id: nuevoEstado });
 });
 
-router.post('/:id/rechazar', (req, res) => {
+router.post('/:id/rechazar', async (req, res) => {
   const user = req.auth?.user;
   const rol = String(user?.rol || '').toLowerCase();
   const esAdmin = user?.rol_id === 1 || rol.includes('admin');
@@ -231,17 +231,17 @@ router.post('/:id/rechazar', (req, res) => {
   }
 
   const id = Number(req.params.id);
-  const s = req.db.prepare('SELECT * FROM solicitudes_materiales WHERE id = ? AND eliminado = 0').get(id);
+  const s = await req.db.prepare('SELECT * FROM solicitudes_materiales WHERE id = ? AND eliminado = 0').get(id);
   if (!s) return res.status(404).json({ success: false, message: 'Solicitud no encontrada' });
   if (![1, 4].includes(s.estado_id)) {
     return res.status(400).json({ success: false, message: 'No se puede rechazar en este estado' });
   }
 
-  req.db.prepare(`
+  await req.db.prepare(`
     UPDATE solicitudes_materiales SET estado_id = 7, fecha_actualizacion = datetime('now') WHERE id = ?
   `).run(id);
 
-  req.db.prepare(`
+  await req.db.prepare(`
     INSERT INTO historial_solicitudes (solicitud_id, estado_id, usuario_id, accion, comentarios)
     VALUES (?, 7, ?, 'Rechazo', ?)
   `).run(id, req.auth.userId, req.body?.comentarios || 'Rechazada');
@@ -249,17 +249,17 @@ router.post('/:id/rechazar', (req, res) => {
   res.json({ success: true, message: 'Solicitud rechazada' });
 });
 
-router.post('/:id/anular', (req, res) => {
+router.post('/:id/anular', async (req, res) => {
   const id = Number(req.params.id);
-  const s = req.db.prepare('SELECT * FROM solicitudes_materiales WHERE id = ? AND eliminado = 0').get(id);
+  const s = await req.db.prepare('SELECT * FROM solicitudes_materiales WHERE id = ? AND eliminado = 0').get(id);
   if (!s) return res.status(404).json({ success: false, message: 'Solicitud no encontrada' });
 
-  req.db.prepare(`
+  await req.db.prepare(`
     UPDATE solicitudes_materiales SET estado_id = 8, eliminado = 1, fecha_actualizacion = datetime('now')
     WHERE id = ?
   `).run(id);
 
-  req.db.prepare(`
+  await req.db.prepare(`
     INSERT INTO historial_solicitudes (solicitud_id, estado_id, usuario_id, accion, comentarios)
     VALUES (?, 8, ?, 'Anulación', ?)
   `).run(id, req.auth.userId, req.body?.comentarios || 'Anulada');

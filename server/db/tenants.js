@@ -3,6 +3,7 @@ const path = require('path');
 const bcrypt = require('bcryptjs');
 const config = require('../config');
 const { Database, initEngine } = require('./sqlite');
+const { createMysqlPool } = require('./mysql');
 
 const schemaSql = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
 const schemaModulesSql = fs.readFileSync(path.join(__dirname, 'schema-modules.sql'), 'utf8');
@@ -28,35 +29,208 @@ function openDb(slug) {
   return db;
 }
 
-function migrateUserFlags(db) {
-  const cols = db.prepare(`PRAGMA table_info(usuarios)`).all().map((c) => c.name);
-  const flags = [
-    'flag_checklist',
-    'flag_flota',
-    'flag_ssgg',
-    'flag_camion_pluma',
-    'flag_aprobador_salida'
-  ];
-  for (const col of flags) {
-    if (!cols.includes(col)) {
-      db.exec(`ALTER TABLE usuarios ADD COLUMN ${col} INTEGER NOT NULL DEFAULT 0`);
+function ensureColumns(db, table, columns) {
+  // sqlite only (sync pragma via async all)
+  return (async () => {
+    let existing;
+    try {
+      existing = (await db.prepare(`PRAGMA table_info(${table})`).all()).map((c) => c.name);
+    } catch (_) {
+      return;
+    }
+    if (!existing.length) return;
+    for (const [col, ddl] of columns) {
+      if (!existing.includes(col)) {
+        try {
+          await db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${ddl}`);
+        } catch (err) {
+          console.warn(`[migrate] ${table}.${col}:`, err.message);
+        }
+      }
+    }
+  })();
+}
+
+async function ensureMysqlColumns(db, table, columns) {
+  for (const [col, ddl] of columns) {
+    try {
+      const row = await db.prepare(`
+        SELECT COUNT(*) AS c FROM information_schema.columns
+        WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?
+      `).get(table, col);
+      if (row && Number(row.c) === 0) {
+        await db.exec(`ALTER TABLE \`${table}\` ADD COLUMN \`${col}\` ${ddl}`);
+        console.log(`[mysql migrate] ${table}.${col} añadida`);
+      }
+    } catch (err) {
+      console.warn(`[mysql migrate] ${table}.${col}:`, err.message);
     }
   }
+}
 
-  // Asignaciones operativas por atributos de usuario
-  try {
-    const ssggCols = db.prepare(`PRAGMA table_info(servicios_generales)`).all().map((c) => c.name);
-    if (ssggCols.length && !ssggCols.includes('asignado_id')) {
-      db.exec(`ALTER TABLE servicios_generales ADD COLUMN asignado_id INTEGER`);
+async function migrateUserFlags(db) {
+  if (db.driver === 'mysql') {
+    await ensureMysqlColumns(db, 'usuarios', [
+      ['ceco_id', 'INT NULL'],
+      ['flag_checklist', 'TINYINT NOT NULL DEFAULT 0'],
+      ['flag_flota', 'TINYINT NOT NULL DEFAULT 0'],
+      ['flag_ssgg', 'TINYINT NOT NULL DEFAULT 0'],
+      ['flag_camion_pluma', 'TINYINT NOT NULL DEFAULT 0'],
+      ['flag_aprobador_salida', 'TINYINT NOT NULL DEFAULT 0']
+    ]);
+    // Angel IA (solo ESERCOM; no existe en PHP)
+    try {
+      await db.exec(`
+        CREATE TABLE IF NOT EXISTS angel_ia_config (
+          id INT PRIMARY KEY,
+          api_key_enc TEXT NULL,
+          api_key_hint VARCHAR(64) NULL,
+          model VARCHAR(64) NOT NULL DEFAULT 'gpt-4o-mini',
+          activo TINYINT NOT NULL DEFAULT 0,
+          reporte_semanal TINYINT NOT NULL DEFAULT 1,
+          dia_reporte INT NOT NULL DEFAULT 1,
+          hora_reporte VARCHAR(8) NOT NULL DEFAULT '08:00',
+          smtp_host VARCHAR(255) NULL,
+          smtp_port INT DEFAULT 587,
+          smtp_user VARCHAR(255) NULL,
+          smtp_pass_enc TEXT NULL,
+          smtp_from VARCHAR(255) NULL,
+          actualizado_por INT NULL,
+          actualizado_en DATETIME NULL
+        )
+      `);
+      await db.exec(`
+        CREATE TABLE IF NOT EXISTS angel_ia_alertas (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          tipo VARCHAR(64) NOT NULL,
+          severidad VARCHAR(16) NOT NULL DEFAULT 'media',
+          titulo VARCHAR(255) NOT NULL,
+          mensaje TEXT NOT NULL,
+          modulo VARCHAR(64) NULL,
+          referencia VARCHAR(128) NULL,
+          usuario_id INT NULL,
+          leida TINYINT NOT NULL DEFAULT 0,
+          fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await db.exec(`
+        CREATE TABLE IF NOT EXISTS angel_ia_mensajes (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          usuario_id INT NOT NULL,
+          rol VARCHAR(32) NOT NULL,
+          contenido TEXT NOT NULL,
+          meta_json TEXT NULL,
+          fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await db.exec(`
+        CREATE TABLE IF NOT EXISTS angel_ia_reportes (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          tipo VARCHAR(64) NOT NULL,
+          titulo VARCHAR(255) NOT NULL,
+          archivo VARCHAR(500) NULL,
+          destinatarios TEXT NULL,
+          resumen TEXT NULL,
+          generado_por INT NULL,
+          fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await db.prepare(`INSERT IGNORE INTO angel_ia_config (id, model, activo, reporte_semanal) VALUES (1, 'gpt-4o-mini', 0, 1)`).run();
+    } catch (err) {
+      console.warn('[mysql] angel tables:', err.message);
     }
-  } catch (_) { /* tabla aún no existe */ }
+    return;
+  }
 
-  try {
-    const checkCols = db.prepare(`PRAGMA table_info(checklist_flota)`).all().map((c) => c.name);
-    if (checkCols.length && !checkCols.includes('tecnico_asignado_id')) {
-      db.exec(`ALTER TABLE checklist_flota ADD COLUMN tecnico_asignado_id INTEGER`);
-    }
-  } catch (_) { /* tabla aún no existe */ }
+  await ensureColumns(db, 'usuarios', [
+    ['ceco_id', 'INTEGER'],
+    ['flag_checklist', 'INTEGER NOT NULL DEFAULT 0'],
+    ['flag_flota', 'INTEGER NOT NULL DEFAULT 0'],
+    ['flag_ssgg', 'INTEGER NOT NULL DEFAULT 0'],
+    ['flag_camion_pluma', 'INTEGER NOT NULL DEFAULT 0'],
+    ['flag_aprobador_salida', 'INTEGER NOT NULL DEFAULT 0']
+  ]);
+
+  await ensureColumns(db, 'materiales', [['categoria', 'TEXT']]);
+
+  await ensureColumns(db, 'solicitudes_materiales', [
+    ['bodega_id', 'INTEGER'],
+    ['bodeguero_id', 'INTEGER'],
+    ['email_proveedor', 'TEXT'],
+    ['observacion_aprobacion_sc', 'TEXT'],
+    ['sc_etapa_aprobacion', 'TEXT'],
+    ['despacho_conductor', 'TEXT'],
+    ['despacho_rut', 'TEXT'],
+    ['despacho_patente', 'TEXT'],
+    ['despacho_direccion', 'TEXT'],
+    ['numero_guia_softland', 'TEXT'],
+    ['guia_softland_adjunto', 'TEXT'],
+    ['foto_entrega', 'TEXT'],
+    ['guias_proveedor', 'TEXT'],
+    ['fecha_aprobacion', 'TEXT'],
+    ['aprobado_por_id', 'INTEGER'],
+    ['fecha_entrega', 'TEXT'],
+    ['fecha_entrega_real', 'TEXT'],
+    ['fecha_cierre', 'TEXT'],
+    ['fecha_entrega_proveedor', 'TEXT'],
+    ['portal_estado', 'TEXT'],
+    ['portal_activado_at', 'TEXT'],
+    ['oc_validada_por', 'INTEGER'],
+    ['oc_validada_at', 'TEXT'],
+    ['oc_validada_observacion', 'TEXT'],
+    ['oc_rechazada_por', 'INTEGER'],
+    ['oc_rechazada_at', 'TEXT'],
+    ['oc_rechazada_motivo', 'TEXT'],
+    ['guia_proveedor_archivo', 'TEXT'],
+    ['guia_proveedor_subida_at', 'TEXT'],
+    ['guia_proveedor_numero', 'TEXT'],
+    ['guia_proveedor_persona_retira', 'TEXT'],
+    ['factura_estado', 'TEXT'],
+    ['factura_archivo', 'TEXT'],
+    ['factura_numero', 'TEXT'],
+    ['factura_monto', 'REAL'],
+    ['factura_subida_at', 'TEXT'],
+    ['factura_aprobada_por', 'INTEGER'],
+    ['factura_aprobada_at', 'TEXT'],
+    ['factura_rechazada_motivo', 'TEXT'],
+    ['factura_finanzas_notif_at', 'TEXT']
+  ]);
+
+  await ensureColumns(db, 'servicios_generales', [
+    ['asignado_id', 'INTEGER'],
+    ['numero_caso', 'TEXT'],
+    ['fecha_completado', 'TEXT'],
+    ['tecnico_asignado', 'TEXT'],
+    ['proveedor', 'TEXT'],
+    ['costo_estimado', 'REAL'],
+    ['costo_real', 'REAL'],
+    ['observaciones', 'TEXT'],
+    ['adjuntos', 'TEXT']
+  ]);
+
+  await ensureColumns(db, 'checklist_flota', [
+    ['codigo', 'TEXT'],
+    ['fecha_inspeccion', 'TEXT'],
+    ['operario_id', 'INTEGER'],
+    ['tecnico_asignado_id', 'INTEGER'],
+    ['nivel_aceite', 'TEXT'],
+    ['nivel_combustible', 'TEXT'],
+    ['limpieza_interior', 'TEXT'],
+    ['limpieza_exterior', 'TEXT'],
+    ['documentacion', 'TEXT'],
+    ['kit_emergencia', 'TEXT'],
+    ['extintor', 'TEXT'],
+    ['rueda_repuesto', 'TEXT'],
+    ['requiere_atencion', 'INTEGER DEFAULT 0'],
+    ['estado_seguimiento', "TEXT DEFAULT 'sin_revisar'"],
+    ['foto_frontal', 'TEXT'],
+    ['foto_lateral_izq', 'TEXT'],
+    ['foto_lateral_der', 'TEXT'],
+    ['foto_trasera', 'TEXT'],
+    ['foto_rueda', 'TEXT'],
+    ['foto_kit_herramientas', 'TEXT'],
+    ['foto_colision', 'TEXT']
+  ]);
 }
 
 function getDb(slug) {
@@ -64,21 +238,27 @@ function getDb(slug) {
   if (!config.getCompany(key)) {
     throw new Error(`Empresa no válida: ${slug}`);
   }
+  // MySQL: una sola BD productiva compartida por todas las empresas del selector
+  if (config.isMysql) {
+    if (!connections.has('__mysql__')) {
+      throw new Error('MySQL no inicializado. Arranque con DB_DRIVER=mysql y credenciales válidas.');
+    }
+    return connections.get('__mysql__');
+  }
   if (!connections.has(key)) {
     if (!fs.existsSync(dbPathFor(key))) {
       throw new Error(`Base de datos no inicializada para ${key}. Ejecute: npm run init-db`);
     }
-    // Motor ya debe estar listo tras initAll()
     connections.set(key, openDb(key));
   }
   return connections.get(key);
 }
 
-function seedCompany(db, company) {
+async function seedCompany(db, company) {
   const passwordHash = bcrypt.hashSync('password', 10);
   const adminEmail = `admin@${company.emailDomain}`;
 
-  db.prepare(`
+  await db.prepare(`
     INSERT OR IGNORE INTO empresas (id, slug, razon_social, rut, email, telefono, direccion)
     VALUES (1, ?, ?, ?, ?, ?, ?)
   `).run(
@@ -133,13 +313,13 @@ function seedCompany(db, company) {
   for (const u of usuarios) insertUser.run(...u);
 
   // Asegura flags en usuarios ya existentes (re-init)
-  db.prepare(`UPDATE usuarios SET flag_checklist=1, flag_flota=1, flag_ssgg=1, flag_camion_pluma=1, flag_aprobador_salida=1 WHERE id=1`).run();
-  db.prepare(`UPDATE usuarios SET flag_aprobador_salida=1 WHERE id IN (2,5)`).run();
-  db.prepare(`UPDATE usuarios SET flag_checklist=1 WHERE id IN (3,4)`).run();
-  db.prepare(`UPDATE usuarios SET flag_checklist=1, flag_flota=1 WHERE id=4`).run();
-  db.prepare(`UPDATE usuarios SET flag_camion_pluma=1, flag_aprobador_salida=1 WHERE email LIKE 'edith.gomez@%'`).run();
-  db.prepare(`UPDATE usuarios SET flag_checklist=1, flag_flota=1 WHERE email LIKE 'pflota@%'`).run();
-  db.prepare(`UPDATE usuarios SET flag_ssgg=1 WHERE email LIKE 'lmanten@%'`).run();
+  await db.prepare(`UPDATE usuarios SET flag_checklist=1, flag_flota=1, flag_ssgg=1, flag_camion_pluma=1, flag_aprobador_salida=1 WHERE id=1`).run();
+  await db.prepare(`UPDATE usuarios SET flag_aprobador_salida=1 WHERE id IN (2,5)`).run();
+  await db.prepare(`UPDATE usuarios SET flag_checklist=1 WHERE id IN (3,4)`).run();
+  await db.prepare(`UPDATE usuarios SET flag_checklist=1, flag_flota=1 WHERE id=4`).run();
+  await db.prepare(`UPDATE usuarios SET flag_camion_pluma=1, flag_aprobador_salida=1 WHERE email LIKE 'edith.gomez@%'`).run();
+  await db.prepare(`UPDATE usuarios SET flag_checklist=1, flag_flota=1 WHERE email LIKE 'pflota@%'`).run();
+  await db.prepare(`UPDATE usuarios SET flag_ssgg=1 WHERE email LIKE 'lmanten@%'`).run();
 
   const estados = [
     [1, 'Pendiente Aprobación', 'Espera aprobación del jefe de proyecto', '#f59e0b', 1],
@@ -195,7 +375,7 @@ function seedCompany(db, company) {
   `);
   for (const b of bodegas) insertBod.run(...b);
 
-  db.prepare(`
+  await db.prepare(`
     INSERT OR IGNORE INTO proveedores (id, razon_social, rut, email, telefono)
     VALUES
       (1, 'Proveedor Demo SpA', '77.100.100-1', 'contacto@proveedordemo.cl', '+56 9 1111 1111'),
@@ -205,7 +385,7 @@ function seedCompany(db, company) {
   // Solicitud de ejemplo
   const exists = db.prepare('SELECT id FROM solicitudes_materiales WHERE id = 1').get();
   if (!exists) {
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO solicitudes_materiales
         (id, codigo, ceco_id, estado_id, solicitante_id, jefe_proyecto_id, fecha_requerida,
          bodega_nombre, ubicacion_entrega, observaciones, quien_retira, quien_usa, numero_proyecto)
@@ -214,7 +394,7 @@ function seedCompany(db, company) {
          ?, 'bodega', 'Solicitud de ejemplo generada en seed', 'María González', 'Cuadrilla A', 'PRY-2026-001')
     `).run(`Bodega Central ${company.name}`);
 
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO solicitudes_detalle
         (solicitud_id, material_id, cantidad, unidad, cantidad_pendiente, precio_unitario, subtotal)
       VALUES
@@ -223,26 +403,26 @@ function seedCompany(db, company) {
         (1, 5, 10, 'UN', 10, 890, 8900)
     `).run();
 
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO historial_solicitudes (solicitud_id, estado_id, usuario_id, accion, comentarios)
       VALUES (1, 1, 3, 'Creación', 'Solicitud creada (seed)')
     `).run();
   }
 
-  seedModules(db, company);
+  await seedModules(db, company);
 }
 
-function seedModules(db, company) {
+async function seedModules(db, company) {
   const prefix = company.slug.substring(0, 3).toUpperCase();
 
-  db.prepare(`
+  await db.prepare(`
     INSERT OR IGNORE INTO materiales_receta_tipos (id, nombre, descripcion) VALUES
       (1, 'Paradero estándar', 'Receta tipo paradero'),
       (2, 'Poste luminaria', 'Instalación luminaria'),
       (3, 'Canalización', 'Obra de canalización')
   `).run();
 
-  db.prepare(`
+  await db.prepare(`
     INSERT OR IGNORE INTO materiales_receta_insumos (id, tipo_id, material_id, descripcion, cantidad, unidad, categoria) VALUES
       (1, 1, 3, 'Poste metálico 6m', 1, 'UN', 'Estructura'),
       (2, 1, 7, 'Luminaria LED 50W', 1, 'UN', 'Iluminación'),
@@ -253,79 +433,79 @@ function seedModules(db, company) {
       (7, 3, 1, 'Cable UTP Cat6', 50, 'MT', 'Cableado')
   `).run();
 
-  db.prepare(`
+  await db.prepare(`
     INSERT OR IGNORE INTO solicitudes_compras
       (id, numero_solicitud, solicitante_id, ceco_id, jefe_proyecto_id, fecha_requerida, estado, observaciones)
     VALUES (1, 'SC-00001', 3, 1, 2, date('now', '+7 days'), 'Pendiente', 'Compra de ejemplo')
   `).run();
 
-  db.prepare(`
+  await db.prepare(`
     INSERT OR IGNORE INTO solicitudes_compras_detalle
       (id, solicitud_id, material_id, descripcion, cantidad, unidad, precio_estimado)
     VALUES (1, 1, 7, 'Luminaria LED 50W', 20, 'UN', 28000)
   `).run();
 
-  db.prepare(`
+  await db.prepare(`
     INSERT OR IGNORE INTO portal_proveedor
       (id, solicitud_id, proveedor_id, numero_guia, guia_estado, factura_estado)
     VALUES (1, 1, 1, NULL, 'Pendiente', 'Pendiente')
   `).run();
 
-  db.prepare(`
+  await db.prepare(`
     INSERT OR IGNORE INTO creacion_datos_maestros
       (id, codigo, tipo, descripcion, unidad_medida, estado, solicitante_id)
     VALUES (1, NULL, 'Material', 'Tornillo hexagonal M8', 'UN', 'Pendiente', 3)
   `).run();
 
-  db.prepare(`
+  await db.prepare(`
     INSERT OR IGNORE INTO tareas_operativas
       (id, area, fecha, hora_inicio, hora_termino, descripcion, ubicacion, ceco_id, horas_hombre, responsable_id)
     VALUES (1, 'Operaciones', date('now'), '08:00', '12:00', 'Inspección de obra', 'Terreno', 1, 4, 3)
   `).run();
 
-  db.prepare(`
+  await db.prepare(`
     INSERT OR IGNORE INTO solicitud_graficas
       (id, codigo, ceco_id, solicitante_id, fecha_requerida, observaciones, estado)
     VALUES (1, 'SG-00001', 1, 3, date('now', '+5 days'), 'Planos de instalación', 'Pendiente Aprobación')
   `).run();
 
-  db.prepare(`
+  await db.prepare(`
     INSERT OR IGNORE INTO servicios_generales
       (id, codigo, categoria, prioridad, titulo, descripcion, ubicacion, estado, solicitante_id)
     VALUES (1, 'SSGG-00001', 'Eléctrico', 'Alta', 'Falla tablero eléctrico', 'Corte intermitente en bodega', 'Bodega Central', 'Abierto', 3)
   `).run();
 
-  db.prepare(`
+  await db.prepare(`
     INSERT OR IGNORE INTO agenda_camion_pluma_v2
       (id, empresa, fecha, hora_inicio, hora_fin, tipo_servicio, solicitante, chofer, proyecto, origen, destino, kilometraje, estado, creado_por)
     VALUES (1, ?, date('now', '+1 day'), '09:00', '13:00', 'Servicio', 'María González', 'Chofer Demo', 'PRY-2026-001', 'Bodega', 'Obra', 45, 'Programado', 1)
   `).run(company.name);
 
-  db.prepare(`
+  await db.prepare(`
     INSERT OR IGNORE INTO checklist_flota
       (id, patente, kilometraje, fecha, conductor_id, estado_general, observaciones)
     VALUES (1, 'ABCD12', 45200, date('now'), 3, 'OK', 'Checklist diario de ejemplo')
   `).run();
 
-  db.prepare(`
+  await db.prepare(`
     INSERT OR IGNORE INTO requerimientos_telecom
       (id, codigo, tipo_solicitud, ceco_id, tipo_equipo, descripcion, estado, solicitante_id)
     VALUES (1, 'TEL-00001', 'Nueva línea', 1, 'Smartphone', 'Línea para jefe de terreno', 'Pendiente', 3)
   `).run();
 
-  db.prepare(`
+  await db.prepare(`
     INSERT OR IGNORE INTO seguimiento_contratos
       (id, codigo, proveedor_id, proveedor_nombre, descripcion, estado, creado_por)
     VALUES (1, 'CTR-00001', 1, 'Proveedor Demo SpA', 'Contrato de suministro anual', 'Borrador', 1)
   `).run();
 
-  db.prepare(`
+  await db.prepare(`
     INSERT OR IGNORE INTO aprobacion_facturas_lote
       (id, codigo, descripcion, creado_por, aprobador_id, estado)
     VALUES (1, 'LOTE-00001', 'Facturas semana actual', 5, 2, 'Pendiente')
   `).run();
 
-  db.prepare(`
+  await db.prepare(`
     INSERT OR IGNORE INTO aprobacion_facturas
       (id, lote_id, numero_factura, proveedor, monto, estado)
     VALUES
@@ -333,13 +513,13 @@ function seedModules(db, company) {
       (2, 1, 'F-1002', 'Distribuidora Norte Ltda', 128000, 'Pendiente')
   `).run();
 
-  db.prepare(`
+  await db.prepare(`
     INSERT OR IGNORE INTO salidas_actividad
       (id, codigo, tipo_receta_id, ceco_id, solicitante_id, cantidad_obras, numero_proyecto, estado)
     VALUES (1, 'SMA-00001', 1, 1, 3, 2, 'PRY-2026-001', 'Pendiente')
   `).run();
 
-  db.prepare(`
+  await db.prepare(`
     INSERT OR IGNORE INTO salidas_actividad_detalle
       (id, salida_id, material_id, descripcion, cantidad, unidad)
     VALUES
@@ -350,19 +530,42 @@ function seedModules(db, company) {
 }
 
 async function initAll() {
+  const results = [];
+
+  if (config.isMysql) {
+    if (!config.mysql.user || !config.mysql.database) {
+      throw new Error(
+        'DB_DRIVER=mysql requiere DB_USER y DB_NAME (ej. gosercom_productivo_db). Revise variables de entorno.'
+      );
+    }
+    console.log(`[DB] MySQL → ${config.mysql.host}/${config.mysql.database}`);
+    const db = await createMysqlPool(config.mysql);
+    await migrateUserFlags(db);
+    connections.set('__mysql__', db);
+    for (const company of config.companies) {
+      results.push({
+        slug: company.slug,
+        name: company.name,
+        file: `mysql://${config.mysql.database}`,
+        created: false,
+        admin: `(usuarios en ${config.mysql.database})`
+      });
+    }
+    return results;
+  }
+
   await initEngine();
   ensureDataDir();
-  const results = [];
 
   for (const company of config.companies) {
     const file = dbPathFor(company.slug);
     const existed = fs.existsSync(file);
     const db = openDb(company.slug);
-    db.exec(schemaSql);
-    db.exec(schemaModulesSql);
-    db.exec(schemaAngelSql);
-    migrateUserFlags(db);
-    seedCompany(db, company);
+    await db.exec(schemaSql);
+    await db.exec(schemaModulesSql);
+    await db.exec(schemaAngelSql);
+    await migrateUserFlags(db);
+    await seedCompany(db, company);
     connections.set(company.slug, db);
     results.push({
       slug: company.slug,
@@ -376,8 +579,10 @@ async function initAll() {
   return results;
 }
 
-function closeAll() {
-  for (const db of connections.values()) db.close();
+async function closeAll() {
+  for (const db of connections.values()) {
+    await db.close();
+  }
   connections.clear();
 }
 
@@ -387,5 +592,6 @@ module.exports = {
   closeAll,
   dbPathFor,
   ensureDataDir,
-  initEngine
+  initEngine,
+  isMysql: () => config.isMysql
 };

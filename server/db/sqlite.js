@@ -44,8 +44,8 @@ class Statement {
     try {
       const values = flattenParams(params);
       if (values.length) stmt.bind(values);
-      if (stmt.step()) return stmt.getAsObject();
-      return undefined;
+      if (stmt.step()) return Promise.resolve(stmt.getAsObject());
+      return Promise.resolve(undefined);
     } finally {
       stmt.free();
     }
@@ -58,7 +58,7 @@ class Statement {
       const values = flattenParams(params);
       if (values.length) stmt.bind(values);
       while (stmt.step()) rows.push(stmt.getAsObject());
-      return rows;
+      return Promise.resolve(rows);
     } finally {
       stmt.free();
     }
@@ -71,7 +71,7 @@ class Statement {
     const idRow = this._db._raw.exec('SELECT last_insert_rowid() AS id');
     const lastInsertRowid = idRow[0] && idRow[0].values[0] ? idRow[0].values[0][0] : 0;
     this._db._markDirty();
-    return { changes, lastInsertRowid };
+    return Promise.resolve({ changes, lastInsertRowid });
   }
 }
 
@@ -103,12 +103,11 @@ class Database {
   exec(sql) {
     this._raw.exec(sql);
     this._markDirty();
-    return this;
+    return Promise.resolve(this);
   }
 
   pragma(source) {
     const s = String(source || '').trim();
-    // WAL no aplica igual en sql.js (memoria + archivo); se ignora sin error
     if (/^journal_mode\b/i.test(s)) return [{ journal_mode: 'memory' }];
     try {
       this._raw.run(`PRAGMA ${s}`);
@@ -119,11 +118,11 @@ class Database {
 
   transaction(fn) {
     const self = this;
-    return function runTransaction(...args) {
+    return async function runTransaction(...args) {
       self._txDepth += 1;
       if (self._txDepth === 1) self._raw.run('BEGIN');
       try {
-        const result = fn.apply(this, args);
+        const result = await fn.apply(this, args);
         self._txDepth -= 1;
         if (self._txDepth === 0) {
           self._raw.run('COMMIT');

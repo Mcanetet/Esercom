@@ -3,12 +3,12 @@ const { decrypt } = require('./crypto');
 const { getDashboardContext, getMovimientosSemana, scanPendientes } = require('./angel-data');
 const { buildExcelReport } = require('./angel-excel');
 
-function getConfig(db) {
+async function getConfig(db) {
   return db.prepare('SELECT * FROM angel_ia_config WHERE id = 1').get();
 }
 
-function getApiKey(db) {
-  const cfg = getConfig(db);
+async function getApiKey(db) {
+  const cfg = await getConfig(db);
   if (!cfg || !cfg.activo || !cfg.api_key_enc) return null;
   try {
     return decrypt(cfg.api_key_enc);
@@ -17,7 +17,7 @@ function getApiKey(db) {
   }
 }
 
-function createAlert(db, alert, userId = null) {
+async function createAlert(db, alert, userId = null) {
   const uid = alert.usuario_id != null ? alert.usuario_id : userId;
   return db.prepare(`
     INSERT INTO angel_ia_alertas (tipo, severidad, titulo, mensaje, modulo, referencia, usuario_id)
@@ -33,17 +33,17 @@ function createAlert(db, alert, userId = null) {
   );
 }
 
-function syncAlerts(db) {
-  const found = scanPendientes(db);
+async function syncAlerts(db) {
+  const found = await scanPendientes(db);
   let created = 0;
   for (const a of found) {
-    const exists = db.prepare(`
+    const exists = await db.prepare(`
       SELECT id FROM angel_ia_alertas
       WHERE referencia = ? AND tipo = ? AND usuario_id = ? AND leida = 0
       LIMIT 1
     `).get(a.referencia || '', a.tipo, a.usuario_id);
     if (!exists) {
-      createAlert(db, a);
+      await createAlert(db, a);
       created++;
     }
   }
@@ -51,8 +51,8 @@ function syncAlerts(db) {
 }
 
 async function generateCecoExcel(db, company, generadoPor) {
-  const movimientos = getMovimientosSemana(db);
-  const ctx = getDashboardContext(db, company);
+  const movimientos = await getMovimientosSemana(db);
+  const ctx = await getDashboardContext(db, company);
 
   const result = await buildExcelReport({
     titulo: `AngelIA_${company.slug}_semanal`,
@@ -82,7 +82,7 @@ async function generateCecoExcel(db, company, generadoPor) {
 
   const resumen = `Reporte semanal ${company.name}: ${ctx.resumen.solicitudes_materiales_activas} activas, ${movimientos.length} líneas de movimiento, ${ctx.resumen.materiales_stock_bajo} materiales con stock bajo. Destinatarios JP: ${destinatarios.join(', ') || 'sin emails'}.`;
 
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO angel_ia_reportes (tipo, titulo, archivo, destinatarios, resumen, generado_por)
     VALUES ('semanal_ceco', ?, ?, ?, ?, ?)
   `).run(
@@ -93,7 +93,7 @@ async function generateCecoExcel(db, company, generadoPor) {
     generadoPor || null
   );
 
-  createAlert(db, {
+  await createAlert(db, {
     tipo: 'reporte_semanal',
     severidad: 'baja',
     titulo: 'Reporte semanal Angel IA generado',
@@ -178,16 +178,16 @@ function pathBasename(f) {
 }
 
 async function chatWithAngel({ db, company, user, message, history = [] }) {
-  const apiKey = getApiKey(db);
+  const apiKey = await getApiKey(db);
   if (!apiKey) {
     const err = new Error('Angel IA no está configurado. Un administrador debe ingresar la API key en Seguridad Angel IA.');
     err.code = 'NO_API_KEY';
     throw err;
   }
 
-  const cfg = getConfig(db);
+  const cfg = await getConfig(db);
   const client = new OpenAI({ apiKey });
-  const ctx = getDashboardContext(db, company);
+  const ctx = await getDashboardContext(db, company);
 
   const system = `Eres Angel IA, asistente inteligente de ESERCOM para la empresa ${company.razonSocial} (${company.name}).
 Ayudas a revisar el sistema, detectar pendientes, generar reportes Excel y alertar a usuarios.
@@ -240,10 +240,10 @@ Para análisis general usa obtener_resumen_empresa.`;
 
   const reply = assistantMsg.content || 'Listo. Revisé la información solicitada.';
 
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO angel_ia_mensajes (usuario_id, rol, contenido) VALUES (?, 'user', ?)
   `).run(user.id, message);
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO angel_ia_mensajes (usuario_id, rol, contenido, meta_json) VALUES (?, 'assistant', ?, ?)
   `).run(user.id, reply, JSON.stringify({ tools: toolResults.map((t) => t.name) }));
 

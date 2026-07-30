@@ -17,8 +17,8 @@ const router = express.Router();
 router.use(authRequired);
 
 /* ---- Estado general (cualquier usuario autenticado) ---- */
-router.get('/status', (req, res) => {
-  const cfg = getConfig(req.db);
+router.get('/status', async (req, res) => {
+  const cfg = await getConfig(req.db);
   res.json({
     success: true,
     data: {
@@ -30,21 +30,21 @@ router.get('/status', (req, res) => {
   });
 });
 
-router.get('/contexto', (req, res) => {
+router.get('/contexto', async (req, res) => {
   res.json({
     success: true,
-    data: getDashboardContext(req.db, req.auth.company)
+    data: await getDashboardContext(req.db, req.auth.company)
   });
 });
 
 /* ---- Chat Angel IA ---- */
-router.get('/chat/historial', (req, res) => {
-  const rows = req.db.prepare(`
+router.get('/chat/historial', async (req, res) => {
+  const rows = (await req.db.prepare(`
     SELECT id, rol, contenido, fecha_creacion
     FROM angel_ia_mensajes
     WHERE usuario_id = ?
     ORDER BY id DESC LIMIT 40
-  `).all(req.auth.userId).reverse();
+  `).all(req.auth.userId)).reverse();
   res.json({ success: true, data: rows });
 });
 
@@ -54,10 +54,10 @@ router.post('/chat', async (req, res) => {
     if (!message) {
       return res.status(400).json({ success: false, message: 'Escribe una pregunta' });
     }
-    const history = req.db.prepare(`
+    const history = (await req.db.prepare(`
       SELECT rol, contenido FROM angel_ia_mensajes
       WHERE usuario_id = ? ORDER BY id DESC LIMIT 12
-    `).all(req.auth.userId).reverse();
+    `).all(req.auth.userId)).reverse();
 
     const result = await chatWithAngel({
       db: req.db,
@@ -79,12 +79,12 @@ router.post('/chat', async (req, res) => {
 });
 
 /* ---- Alertas (por usuario) ---- */
-router.get('/alertas', (req, res) => {
+router.get('/alertas', async (req, res) => {
   const onlyUnread = req.query.unread !== '0';
   // Al entrar, sincroniza pendientes dirigidos al usuario/empresa
-  try { syncAlerts(req.db); } catch (_) { /* no-op */ }
+  try { await syncAlerts(req.db); } catch (_) { /* no-op */ }
 
-  const rows = req.db.prepare(`
+  const rows = await req.db.prepare(`
     SELECT * FROM angel_ia_alertas
     WHERE usuario_id = ?
       ${onlyUnread ? 'AND leida = 0' : ''}
@@ -96,30 +96,30 @@ router.get('/alertas', (req, res) => {
   res.json({ success: true, data: rows, count: rows.length });
 });
 
-router.get('/alertas/count', (req, res) => {
-  try { syncAlerts(req.db); } catch (_) { /* no-op */ }
-  const c = req.db.prepare(`
+router.get('/alertas/count', async (req, res) => {
+  try { await syncAlerts(req.db); } catch (_) { /* no-op */ }
+  const c = (await req.db.prepare(`
     SELECT COUNT(*) AS c FROM angel_ia_alertas
     WHERE usuario_id = ? AND leida = 0
-  `).get(req.auth.userId).c;
+  `).get(req.auth.userId)).c;
   res.json({ success: true, data: { count: c } });
 });
 
-router.post('/alertas/sincronizar', (req, res) => {
-  const result = syncAlerts(req.db);
+router.post('/alertas/sincronizar', async (req, res) => {
+  const result = await syncAlerts(req.db);
   res.json({ success: true, data: result, message: `Alertas sincronizadas: ${result.created} nuevas` });
 });
 
-router.post('/alertas/:id/leer', (req, res) => {
-  req.db.prepare(`
+router.post('/alertas/:id/leer', async (req, res) => {
+  await req.db.prepare(`
     UPDATE angel_ia_alertas SET leida = 1
     WHERE id = ? AND usuario_id = ?
   `).run(Number(req.params.id), req.auth.userId);
   res.json({ success: true });
 });
 
-router.post('/alertas/leer-todas', (req, res) => {
-  req.db.prepare(`
+router.post('/alertas/leer-todas', async (req, res) => {
+  await req.db.prepare(`
     UPDATE angel_ia_alertas SET leida = 1
     WHERE leida = 0 AND usuario_id = ?
   `).run(req.auth.userId);
@@ -146,15 +146,15 @@ router.post('/reportes/semanal', async (req, res) => {
   }
 });
 
-router.get('/reportes', (req, res) => {
-  const rows = req.db.prepare(`
+router.get('/reportes', async (req, res) => {
+  const rows = await req.db.prepare(`
     SELECT id, tipo, titulo, archivo, destinatarios, resumen, fecha_creacion
     FROM angel_ia_reportes ORDER BY id DESC LIMIT 50
   `).all();
   res.json({ success: true, data: rows });
 });
 
-router.get('/reportes/download/:file', (req, res) => {
+router.get('/reportes/download/:file', async (req, res) => {
   const file = path.basename(req.params.file);
   const full = path.join(config.dataDir, 'reportes', file);
   if (!fs.existsSync(full)) {
@@ -164,8 +164,8 @@ router.get('/reportes/download/:file', (req, res) => {
 });
 
 /* ---- Seguridad (solo admin): API OpenAI ---- */
-router.get('/seguridad', adminRequired, (req, res) => {
-  const cfg = getConfig(req.db);
+router.get('/seguridad', adminRequired, async (req, res) => {
+  const cfg = await getConfig(req.db);
   res.json({
     success: true,
     data: {
@@ -186,10 +186,10 @@ router.get('/seguridad', adminRequired, (req, res) => {
   });
 });
 
-router.post('/seguridad', adminRequired, (req, res) => {
+router.post('/seguridad', adminRequired, async (req, res) => {
   try {
     const b = req.body || {};
-    const current = getConfig(req.db) || { id: 1 };
+    const current = (await getConfig(req.db)) || { id: 1 };
 
     let apiKeyEnc = current.api_key_enc || null;
     let hint = current.api_key_hint || null;
@@ -216,42 +216,82 @@ router.post('/seguridad', adminRequired, (req, res) => {
       smtpPassEnc = encrypt(String(b.smtp_pass).trim());
     }
 
-    req.db.prepare(`
-      INSERT INTO angel_ia_config (
-        id, api_key_enc, api_key_hint, model, activo, reporte_semanal,
-        dia_reporte, hora_reporte, smtp_host, smtp_port, smtp_user, smtp_pass_enc, smtp_from,
-        actualizado_por, actualizado_en
-      ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-      ON CONFLICT(id) DO UPDATE SET
-        api_key_enc = excluded.api_key_enc,
-        api_key_hint = excluded.api_key_hint,
-        model = excluded.model,
-        activo = excluded.activo,
-        reporte_semanal = excluded.reporte_semanal,
-        dia_reporte = excluded.dia_reporte,
-        hora_reporte = excluded.hora_reporte,
-        smtp_host = excluded.smtp_host,
-        smtp_port = excluded.smtp_port,
-        smtp_user = excluded.smtp_user,
-        smtp_pass_enc = excluded.smtp_pass_enc,
-        smtp_from = excluded.smtp_from,
-        actualizado_por = excluded.actualizado_por,
-        actualizado_en = excluded.actualizado_en
-    `).run(
-      apiKeyEnc,
-      hint,
-      b.model || current.model || 'gpt-4o-mini',
-      b.activo === false || b.activo === 0 ? 0 : 1,
-      b.reporte_semanal === false || b.reporte_semanal === 0 ? 0 : 1,
-      Number(b.dia_reporte ?? current.dia_reporte ?? 1),
-      b.hora_reporte || current.hora_reporte || '08:00',
-      b.smtp_host || null,
-      Number(b.smtp_port) || 587,
-      b.smtp_user || null,
-      smtpPassEnc,
-      b.smtp_from || null,
-      req.auth.userId
-    );
+    // SQLite: ON CONFLICT; MySQL: REPLACE/INSERT ... ON DUPLICATE KEY (vía adapter)
+    if (req.db.driver === 'mysql') {
+      await req.db.prepare(`
+        INSERT INTO angel_ia_config (
+          id, api_key_enc, api_key_hint, model, activo, reporte_semanal,
+          dia_reporte, hora_reporte, smtp_host, smtp_port, smtp_user, smtp_pass_enc, smtp_from,
+          actualizado_por, actualizado_en
+        ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+        ON DUPLICATE KEY UPDATE
+          api_key_enc = VALUES(api_key_enc),
+          api_key_hint = VALUES(api_key_hint),
+          model = VALUES(model),
+          activo = VALUES(activo),
+          reporte_semanal = VALUES(reporte_semanal),
+          dia_reporte = VALUES(dia_reporte),
+          hora_reporte = VALUES(hora_reporte),
+          smtp_host = VALUES(smtp_host),
+          smtp_port = VALUES(smtp_port),
+          smtp_user = VALUES(smtp_user),
+          smtp_pass_enc = VALUES(smtp_pass_enc),
+          smtp_from = VALUES(smtp_from),
+          actualizado_por = VALUES(actualizado_por),
+          actualizado_en = VALUES(actualizado_en)
+      `).run(
+        apiKeyEnc,
+        hint,
+        b.model || current.model || 'gpt-4o-mini',
+        b.activo === false || b.activo === 0 ? 0 : 1,
+        b.reporte_semanal === false || b.reporte_semanal === 0 ? 0 : 1,
+        Number(b.dia_reporte ?? current.dia_reporte ?? 1),
+        b.hora_reporte || current.hora_reporte || '08:00',
+        b.smtp_host || null,
+        Number(b.smtp_port) || 587,
+        b.smtp_user || null,
+        smtpPassEnc,
+        b.smtp_from || null,
+        req.auth.userId
+      );
+    } else {
+      await req.db.prepare(`
+        INSERT INTO angel_ia_config (
+          id, api_key_enc, api_key_hint, model, activo, reporte_semanal,
+          dia_reporte, hora_reporte, smtp_host, smtp_port, smtp_user, smtp_pass_enc, smtp_from,
+          actualizado_por, actualizado_en
+        ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        ON CONFLICT(id) DO UPDATE SET
+          api_key_enc = excluded.api_key_enc,
+          api_key_hint = excluded.api_key_hint,
+          model = excluded.model,
+          activo = excluded.activo,
+          reporte_semanal = excluded.reporte_semanal,
+          dia_reporte = excluded.dia_reporte,
+          hora_reporte = excluded.hora_reporte,
+          smtp_host = excluded.smtp_host,
+          smtp_port = excluded.smtp_port,
+          smtp_user = excluded.smtp_user,
+          smtp_pass_enc = excluded.smtp_pass_enc,
+          smtp_from = excluded.smtp_from,
+          actualizado_por = excluded.actualizado_por,
+          actualizado_en = excluded.actualizado_en
+      `).run(
+        apiKeyEnc,
+        hint,
+        b.model || current.model || 'gpt-4o-mini',
+        b.activo === false || b.activo === 0 ? 0 : 1,
+        b.reporte_semanal === false || b.reporte_semanal === 0 ? 0 : 1,
+        Number(b.dia_reporte ?? current.dia_reporte ?? 1),
+        b.hora_reporte || current.hora_reporte || '08:00',
+        b.smtp_host || null,
+        Number(b.smtp_port) || 587,
+        b.smtp_user || null,
+        smtpPassEnc,
+        b.smtp_from || null,
+        req.auth.userId
+      );
+    }
 
     res.json({
       success: true,
@@ -266,7 +306,7 @@ router.post('/seguridad', adminRequired, (req, res) => {
 
 router.post('/seguridad/probar', adminRequired, async (req, res) => {
   try {
-    const cfg = getConfig(req.db);
+    const cfg = await getConfig(req.db);
     if (!cfg?.api_key_enc) {
       return res.status(400).json({ success: false, message: 'No hay API key configurada' });
     }

@@ -4,9 +4,10 @@ const { authRequired } = require('../middleware/auth');
 const router = express.Router();
 router.use(authRequired);
 
-function nextCode(db, table, column, prefix) {
-  const row = db.prepare(`SELECT ${column} AS c FROM ${table} WHERE ${column} LIKE ? ORDER BY id DESC LIMIT 1`)
-    .get(`${prefix}%`);
+async function nextCode(db, table, column, prefix) {
+  const row = await db.prepare(
+    `SELECT ${column} AS c FROM ${table} WHERE ${column} LIKE ? ORDER BY id DESC LIMIT 1`
+  ).get(`${prefix}%`);
   let n = 1;
   if (row && row.c) {
     const m = String(row.c).match(/(\d+)\s*$/);
@@ -15,8 +16,8 @@ function nextCode(db, table, column, prefix) {
   return `${prefix}${String(n).padStart(5, '0')}`;
 }
 
-function toTrash(db, userId, tipo, referenciaId, codigo, titulo, datos) {
-  db.prepare(`
+async function toTrash(db, userId, tipo, referenciaId, codigo, titulo, datos) {
+  await db.prepare(`
     INSERT INTO papelera (tipo, referencia_id, codigo, titulo, datos_json, eliminado_por)
     VALUES (?, ?, ?, ?, ?, ?)
   `).run(tipo, referenciaId, codigo || null, titulo || null, JSON.stringify(datos || {}), userId);
@@ -38,7 +39,7 @@ function denyUnlessFlag(req, res, flag, message) {
 }
 
 /* ========== COMPRAS ========== */
-router.get('/compras', (req, res) => {
+router.get('/compras', async (req, res) => {
   const q = String(req.query.q || '').trim();
   let sql = `
     SELECT s.*, u.nombre || ' ' || u.apellido AS solicitante, c.codigo AS ceco_codigo
@@ -52,11 +53,11 @@ router.get('/compras', (req, res) => {
     params.push(`%${q}%`, `%${q}%`);
   }
   sql += ' ORDER BY s.id DESC LIMIT 200';
-  res.json({ success: true, data: req.db.prepare(sql).all(...params) });
+  res.json({ success: true, data: await req.db.prepare(sql).all(...params) });
 });
 
-router.get('/compras/:id', (req, res) => {
-  const s = req.db.prepare(`
+router.get('/compras/:id', async (req, res) => {
+  const s = await req.db.prepare(`
     SELECT s.*, u.nombre || ' ' || u.apellido AS solicitante, c.codigo AS ceco_codigo, c.nombre AS ceco_nombre
     FROM solicitudes_compras s
     JOIN usuarios u ON u.id = s.solicitante_id
@@ -64,7 +65,7 @@ router.get('/compras/:id', (req, res) => {
     WHERE s.id = ? AND s.eliminado = 0
   `).get(Number(req.params.id));
   if (!s) return res.status(404).json({ success: false, message: 'No encontrada' });
-  const detalle = req.db.prepare(`
+  const detalle = await req.db.prepare(`
     SELECT d.*, m.codigo AS material_codigo, m.nombre AS material_nombre
     FROM solicitudes_compras_detalle d
     LEFT JOIN materiales m ON m.id = d.material_id
@@ -73,53 +74,53 @@ router.get('/compras/:id', (req, res) => {
   res.json({ success: true, data: { ...s, detalle } });
 });
 
-router.post('/compras', (req, res) => {
+router.post('/compras', async (req, res) => {
   const b = req.body || {};
   const items = Array.isArray(b.items) ? b.items : [];
   if (!b.ceco_id) return res.status(400).json({ success: false, message: 'CECO requerido' });
   if (!items.length) return res.status(400).json({ success: false, message: 'Agregue ítems' });
-  const codigo = nextCode(req.db, 'solicitudes_compras', 'numero_solicitud', 'SC-');
-  const tx = req.db.transaction(() => {
-    const info = req.db.prepare(`
+  const codigo = await nextCode(req.db, 'solicitudes_compras', 'numero_solicitud', 'SC-');
+  const tx = req.db.transaction(async () => {
+    const info = await req.db.prepare(`
       INSERT INTO solicitudes_compras
         (numero_solicitud, solicitante_id, ceco_id, jefe_proyecto_id, fecha_requerida, estado, observaciones)
       VALUES (?, ?, ?, ?, ?, 'Pendiente', ?)
     `).run(codigo, req.auth.userId, Number(b.ceco_id), b.jefe_proyecto_id || null, b.fecha_requerida || null, b.observaciones || null);
     const id = info.lastInsertRowid;
-    const ins = req.db.prepare(`
+    const ins = await req.db.prepare(`
       INSERT INTO solicitudes_compras_detalle
         (solicitud_id, material_id, descripcion, cantidad, unidad, precio_estimado, observaciones)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
     for (const it of items) {
-      ins.run(id, it.material_id || null, it.descripcion || '', Number(it.cantidad) || 1, it.unidad || 'UN', Number(it.precio_estimado) || 0, it.observaciones || null);
+      await ins.run(id, it.material_id || null, it.descripcion || '', Number(it.cantidad) || 1, it.unidad || 'UN', Number(it.precio_estimado) || 0, it.observaciones || null);
     }
     return id;
   });
-  const id = tx();
+  const id = await tx();
   res.status(201).json({ success: true, data: { id, numero_solicitud: codigo } });
 });
 
-router.post('/compras/:id/estado', (req, res) => {
+router.post('/compras/:id/estado', async (req, res) => {
   const estado = req.body?.estado;
   if (!estado) return res.status(400).json({ success: false, message: 'Estado requerido' });
-  req.db.prepare(`UPDATE solicitudes_compras SET estado = ? WHERE id = ? AND eliminado = 0`)
+  await req.db.prepare(`UPDATE solicitudes_compras SET estado = ? WHERE id = ? AND eliminado = 0`)
     .run(estado, Number(req.params.id));
   res.json({ success: true, message: 'Estado actualizado' });
 });
 
-router.post('/compras/:id/eliminar', (req, res) => {
+router.post('/compras/:id/eliminar', async (req, res) => {
   const id = Number(req.params.id);
-  const s = req.db.prepare(`SELECT * FROM solicitudes_compras WHERE id = ?`).get(id);
+  const s = await req.db.prepare(`SELECT * FROM solicitudes_compras WHERE id = ?`).get(id);
   if (!s) return res.status(404).json({ success: false, message: 'No encontrada' });
-  req.db.prepare(`UPDATE solicitudes_compras SET eliminado = 1 WHERE id = ?`).run(id);
-  toTrash(req.db, req.auth.userId, 'compras', id, s.numero_solicitud, s.observaciones, s);
+  await req.db.prepare(`UPDATE solicitudes_compras SET eliminado = 1 WHERE id = ?`).run(id);
+  await toTrash(req.db, req.auth.userId, 'compras', id, s.numero_solicitud, s.observaciones, s);
   res.json({ success: true, message: 'Movida a papelera' });
 });
 
 /* ========== PORTAL PROVEEDORES ========== */
-router.get('/portal', (req, res) => {
-  const data = req.db.prepare(`
+router.get('/portal', async (req, res) => {
+  const data = await req.db.prepare(`
     SELECT p.*, s.codigo AS solicitud_codigo, s.numero_proyecto,
            pr.razon_social AS proveedor_nombre, e.nombre AS solicitud_estado
     FROM portal_proveedor p
@@ -131,9 +132,9 @@ router.get('/portal', (req, res) => {
   res.json({ success: true, data });
 });
 
-router.post('/portal/:id/guia', (req, res) => {
+router.post('/portal/:id/guia', async (req, res) => {
   const b = req.body || {};
-  req.db.prepare(`
+  await req.db.prepare(`
     UPDATE portal_proveedor
     SET numero_guia = ?, fecha_entrega = ?, persona_retira = ?, guia_estado = 'Subida', observaciones = ?
     WHERE id = ?
@@ -141,9 +142,9 @@ router.post('/portal/:id/guia', (req, res) => {
   res.json({ success: true, message: 'Guía registrada' });
 });
 
-router.post('/portal/:id/factura', (req, res) => {
+router.post('/portal/:id/factura', async (req, res) => {
   const b = req.body || {};
-  req.db.prepare(`
+  await req.db.prepare(`
     UPDATE portal_proveedor
     SET numero_factura = ?, monto_factura = ?, factura_estado = 'Subida'
     WHERE id = ?
@@ -151,24 +152,24 @@ router.post('/portal/:id/factura', (req, res) => {
   res.json({ success: true, message: 'Factura registrada' });
 });
 
-router.post('/portal/:id/validar-guia', (req, res) => {
+router.post('/portal/:id/validar-guia', async (req, res) => {
   const ok = req.body?.aprobar !== false;
-  req.db.prepare(`UPDATE portal_proveedor SET guia_estado = ? WHERE id = ?`)
+  await req.db.prepare(`UPDATE portal_proveedor SET guia_estado = ? WHERE id = ?`)
     .run(ok ? 'Validada' : 'Rechazada', Number(req.params.id));
   res.json({ success: true, message: ok ? 'Guía validada' : 'Guía rechazada' });
 });
 
-router.post('/portal/:id/aprobar-factura', (req, res) => {
+router.post('/portal/:id/aprobar-factura', async (req, res) => {
   const ok = req.body?.aprobar !== false;
-  req.db.prepare(`UPDATE portal_proveedor SET factura_estado = ? WHERE id = ?`)
+  await req.db.prepare(`UPDATE portal_proveedor SET factura_estado = ? WHERE id = ?`)
     .run(ok ? 'Aprobada' : 'Rechazada', Number(req.params.id));
   res.json({ success: true, message: ok ? 'Factura aprobada' : 'Factura rechazada' });
 });
 
 /* ========== RECETAS ========== */
-router.get('/recetas', (req, res) => {
-  const tipos = req.db.prepare(`SELECT * FROM materiales_receta_tipos WHERE activo = 1 ORDER BY nombre`).all();
-  const insumos = req.db.prepare(`
+router.get('/recetas', async (req, res) => {
+  const tipos = await req.db.prepare(`SELECT * FROM materiales_receta_tipos WHERE activo = 1 ORDER BY nombre`).all();
+  const insumos = await req.db.prepare(`
     SELECT i.*, m.codigo AS material_codigo, m.nombre AS material_nombre, t.nombre AS tipo_nombre
     FROM materiales_receta_insumos i
     JOIN materiales_receta_tipos t ON t.id = i.tipo_id
@@ -179,30 +180,30 @@ router.get('/recetas', (req, res) => {
   res.json({ success: true, data: { tipos, insumos } });
 });
 
-router.post('/recetas/tipos', (req, res) => {
+router.post('/recetas/tipos', async (req, res) => {
   const nombre = String(req.body?.nombre || '').trim();
   if (!nombre) return res.status(400).json({ success: false, message: 'Nombre requerido' });
-  const info = req.db.prepare(`INSERT INTO materiales_receta_tipos (nombre, descripcion) VALUES (?, ?)`)
+  const info = await req.db.prepare(`INSERT INTO materiales_receta_tipos (nombre, descripcion) VALUES (?, ?)`)
     .run(nombre, req.body?.descripcion || null);
   res.status(201).json({ success: true, data: { id: info.lastInsertRowid } });
 });
 
-router.post('/recetas/insumos', (req, res) => {
+router.post('/recetas/insumos', async (req, res) => {
   const b = req.body || {};
   if (!b.tipo_id || !b.descripcion) {
     return res.status(400).json({ success: false, message: 'tipo_id y descripción requeridos' });
   }
-  const info = req.db.prepare(`
+  const info = await req.db.prepare(`
     INSERT INTO materiales_receta_insumos (tipo_id, material_id, descripcion, cantidad, unidad, categoria)
     VALUES (?, ?, ?, ?, ?, ?)
   `).run(Number(b.tipo_id), b.material_id || null, b.descripcion, Number(b.cantidad) || 1, b.unidad || 'UN', b.categoria || null);
   res.status(201).json({ success: true, data: { id: info.lastInsertRowid } });
 });
 
-router.post('/recetas/calcular', (req, res) => {
+router.post('/recetas/calcular', async (req, res) => {
   const tipoId = Number(req.body?.tipo_id);
   const obras = Number(req.body?.cantidad_obras) || 1;
-  const insumos = req.db.prepare(`
+  const insumos = await req.db.prepare(`
     SELECT i.*, m.codigo AS material_codigo, m.nombre AS material_nombre, m.stock
     FROM materiales_receta_insumos i
     LEFT JOIN materiales m ON m.id = i.material_id
@@ -215,8 +216,8 @@ router.post('/recetas/calcular', (req, res) => {
 });
 
 /* ========== SALIDA POR ACTIVIDAD ========== */
-router.get('/salidas-actividad', (req, res) => {
-  const data = req.db.prepare(`
+router.get('/salidas-actividad', async (req, res) => {
+  const data = await req.db.prepare(`
     SELECT s.*, t.nombre AS tipo_nombre, c.codigo AS ceco_codigo,
            u.nombre || ' ' || u.apellido AS solicitante
     FROM salidas_actividad s
@@ -229,40 +230,41 @@ router.get('/salidas-actividad', (req, res) => {
   res.json({ success: true, data });
 });
 
-router.post('/salidas-actividad', (req, res) => {
+router.post('/salidas-actividad', async (req, res) => {
   const b = req.body || {};
   if (!b.tipo_receta_id || !b.ceco_id) {
     return res.status(400).json({ success: false, message: 'Tipo de receta y CECO requeridos' });
   }
   const obras = Number(b.cantidad_obras) || 1;
-  const codigo = nextCode(req.db, 'salidas_actividad', 'codigo', 'SMA-');
-  const insumos = req.db.prepare(`
+  const codigo = await nextCode(req.db, 'salidas_actividad', 'codigo', 'SMA-');
+  const insumos = await req.db.prepare(`
     SELECT * FROM materiales_receta_insumos WHERE tipo_id = ? AND activo = 1
   `).all(Number(b.tipo_receta_id));
   if (!insumos.length) {
     return res.status(400).json({ success: false, message: 'La receta no tiene insumos' });
   }
-  const tx = req.db.transaction(() => {
-    const info = req.db.prepare(`
+  const tx = req.db.transaction(async () => {
+    const info = await req.db.prepare(`
       INSERT INTO salidas_actividad
         (codigo, tipo_receta_id, ceco_id, solicitante_id, cantidad_obras, numero_proyecto, estado, observaciones)
       VALUES (?, ?, ?, ?, ?, ?, 'Pendiente', ?)
     `).run(codigo, Number(b.tipo_receta_id), Number(b.ceco_id), req.auth.userId, obras, b.numero_proyecto || null, b.observaciones || null);
     const id = info.lastInsertRowid;
-    const ins = req.db.prepare(`
+    const ins = await req.db.prepare(`
       INSERT INTO salidas_actividad_detalle (salida_id, material_id, descripcion, cantidad, unidad)
       VALUES (?, ?, ?, ?, ?)
     `);
     for (const i of insumos) {
-      ins.run(id, i.material_id, i.descripcion, Number(i.cantidad) * obras, i.unidad);
+      await ins.run(id, i.material_id, i.descripcion, Number(i.cantidad) * obras, i.unidad);
     }
     return id;
   });
-  res.status(201).json({ success: true, data: { id: tx(), codigo } });
+  const salidaId = await tx();
+  res.status(201).json({ success: true, data: { id: salidaId, codigo } });
 });
 
-router.get('/salidas-actividad/:id', (req, res) => {
-  const s = req.db.prepare(`
+router.get('/salidas-actividad/:id', async (req, res) => {
+  const s = await req.db.prepare(`
     SELECT s.*, t.nombre AS tipo_nombre, c.codigo AS ceco_codigo,
            u.nombre || ' ' || u.apellido AS solicitante
     FROM salidas_actividad s
@@ -272,19 +274,19 @@ router.get('/salidas-actividad/:id', (req, res) => {
     WHERE s.id = ? AND s.eliminado = 0
   `).get(Number(req.params.id));
   if (!s) return res.status(404).json({ success: false, message: 'No encontrada' });
-  const detalle = req.db.prepare(`SELECT * FROM salidas_actividad_detalle WHERE salida_id = ?`).all(s.id);
+  const detalle = await req.db.prepare(`SELECT * FROM salidas_actividad_detalle WHERE salida_id = ?`).all(s.id);
   res.json({ success: true, data: { ...s, detalle } });
 });
 
-router.post('/salidas-actividad/:id/estado', (req, res) => {
-  req.db.prepare(`UPDATE salidas_actividad SET estado = ? WHERE id = ?`)
+router.post('/salidas-actividad/:id/estado', async (req, res) => {
+  await req.db.prepare(`UPDATE salidas_actividad SET estado = ? WHERE id = ?`)
     .run(req.body?.estado || 'Pendiente', Number(req.params.id));
   res.json({ success: true });
 });
 
 /* ========== DATOS MAESTROS ========== */
-router.get('/datos-maestros', (req, res) => {
-  const data = req.db.prepare(`
+router.get('/datos-maestros', async (req, res) => {
+  const data = await req.db.prepare(`
     SELECT d.*, u.nombre || ' ' || u.apellido AS solicitante
     FROM creacion_datos_maestros d
     LEFT JOIN usuarios u ON u.id = d.solicitante_id
@@ -293,10 +295,10 @@ router.get('/datos-maestros', (req, res) => {
   res.json({ success: true, data });
 });
 
-router.post('/datos-maestros', (req, res) => {
+router.post('/datos-maestros', async (req, res) => {
   const b = req.body || {};
   if (!b.descripcion) return res.status(400).json({ success: false, message: 'Descripción requerida' });
-  const info = req.db.prepare(`
+  const info = await req.db.prepare(`
     INSERT INTO creacion_datos_maestros
       (tipo, descripcion, unidad_medida, color, medida, inventariable, estado, solicitante_id, observaciones)
     VALUES (?, ?, ?, ?, ?, ?, 'Pendiente', ?, ?)
@@ -307,9 +309,9 @@ router.post('/datos-maestros', (req, res) => {
   res.status(201).json({ success: true, data: { id: info.lastInsertRowid } });
 });
 
-router.post('/datos-maestros/:id', (req, res) => {
+router.post('/datos-maestros/:id', async (req, res) => {
   const b = req.body || {};
-  req.db.prepare(`
+  await req.db.prepare(`
     UPDATE creacion_datos_maestros
     SET codigo = COALESCE(?, codigo), estado = COALESCE(?, estado),
         responsable = COALESCE(?, responsable), descripcion = COALESCE(?, descripcion),
@@ -319,18 +321,18 @@ router.post('/datos-maestros/:id', (req, res) => {
   res.json({ success: true, message: 'Actualizado' });
 });
 
-router.post('/datos-maestros/:id/eliminar', (req, res) => {
+router.post('/datos-maestros/:id/eliminar', async (req, res) => {
   const id = Number(req.params.id);
-  const row = req.db.prepare(`SELECT * FROM creacion_datos_maestros WHERE id = ?`).get(id);
+  const row = await req.db.prepare(`SELECT * FROM creacion_datos_maestros WHERE id = ?`).get(id);
   if (!row) return res.status(404).json({ success: false, message: 'No encontrado' });
-  req.db.prepare(`UPDATE creacion_datos_maestros SET eliminado = 1 WHERE id = ?`).run(id);
-  toTrash(req.db, req.auth.userId, 'datos-maestros', id, row.codigo, row.descripcion, row);
+  await req.db.prepare(`UPDATE creacion_datos_maestros SET eliminado = 1 WHERE id = ?`).run(id);
+  await toTrash(req.db, req.auth.userId, 'datos-maestros', id, row.codigo, row.descripcion, row);
   res.json({ success: true });
 });
 
 /* ========== TAREAS OPERATIVAS ========== */
-router.get('/tareas', (req, res) => {
-  const data = req.db.prepare(`
+router.get('/tareas', async (req, res) => {
+  const data = await req.db.prepare(`
     SELECT t.*, c.codigo AS ceco_codigo, u.nombre || ' ' || u.apellido AS responsable
     FROM tareas_operativas t
     LEFT JOIN cecos c ON c.id = t.ceco_id
@@ -341,12 +343,12 @@ router.get('/tareas', (req, res) => {
   res.json({ success: true, data });
 });
 
-router.post('/tareas', (req, res) => {
+router.post('/tareas', async (req, res) => {
   const b = req.body || {};
   if (!b.area || !b.fecha || !b.descripcion) {
     return res.status(400).json({ success: false, message: 'Área, fecha y descripción requeridos' });
   }
-  const info = req.db.prepare(`
+  const info = await req.db.prepare(`
     INSERT INTO tareas_operativas
       (area, fecha, hora_inicio, hora_termino, camioneta, descripcion, ubicacion, ceco_id, horas_hombre, responsable_id)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -357,18 +359,18 @@ router.post('/tareas', (req, res) => {
   res.status(201).json({ success: true, data: { id: info.lastInsertRowid } });
 });
 
-router.post('/tareas/:id/eliminar', (req, res) => {
+router.post('/tareas/:id/eliminar', async (req, res) => {
   const id = Number(req.params.id);
-  const row = req.db.prepare(`SELECT * FROM tareas_operativas WHERE id = ?`).get(id);
+  const row = await req.db.prepare(`SELECT * FROM tareas_operativas WHERE id = ?`).get(id);
   if (!row) return res.status(404).json({ success: false, message: 'No encontrada' });
-  req.db.prepare(`UPDATE tareas_operativas SET eliminado = 1 WHERE id = ?`).run(id);
-  toTrash(req.db, req.auth.userId, 'tareas', id, null, row.descripcion, row);
+  await req.db.prepare(`UPDATE tareas_operativas SET eliminado = 1 WHERE id = ?`).run(id);
+  await toTrash(req.db, req.auth.userId, 'tareas', id, null, row.descripcion, row);
   res.json({ success: true });
 });
 
 /* ========== GRÁFICAS ========== */
-router.get('/graficas', (req, res) => {
-  const data = req.db.prepare(`
+router.get('/graficas', async (req, res) => {
+  const data = await req.db.prepare(`
     SELECT g.*, c.codigo AS ceco_codigo, u.nombre || ' ' || u.apellido AS solicitante
     FROM solicitud_graficas g
     LEFT JOIN cecos c ON c.id = g.ceco_id
@@ -378,19 +380,19 @@ router.get('/graficas', (req, res) => {
   res.json({ success: true, data });
 });
 
-router.post('/graficas', (req, res) => {
+router.post('/graficas', async (req, res) => {
   const b = req.body || {};
-  const codigo = nextCode(req.db, 'solicitud_graficas', 'codigo', 'SG-');
-  const info = req.db.prepare(`
+  const codigo = await nextCode(req.db, 'solicitud_graficas', 'codigo', 'SG-');
+  const info = await req.db.prepare(`
     INSERT INTO solicitud_graficas (codigo, ceco_id, solicitante_id, fecha_requerida, observaciones, estado)
     VALUES (?, ?, ?, ?, ?, 'Pendiente Aprobación')
   `).run(codigo, b.ceco_id || null, req.auth.userId, b.fecha_requerida || null, b.observaciones || null);
   res.status(201).json({ success: true, data: { id: info.lastInsertRowid, codigo } });
 });
 
-router.post('/graficas/:id/estado', (req, res) => {
+router.post('/graficas/:id/estado', async (req, res) => {
   const b = req.body || {};
-  req.db.prepare(`
+  await req.db.prepare(`
     UPDATE solicitud_graficas
     SET estado = COALESCE(?, estado), ot_numero = COALESCE(?, ot_numero),
         oc_numero = COALESCE(?, oc_numero), tipo_entrega = COALESCE(?, tipo_entrega)
@@ -400,8 +402,8 @@ router.post('/graficas/:id/estado', (req, res) => {
 });
 
 /* ========== SERVICIOS GENERALES ========== */
-router.get('/ssgg', (req, res) => {
-  const data = req.db.prepare(`
+router.get('/ssgg', async (req, res) => {
+  const data = await req.db.prepare(`
     SELECT s.*, u.nombre || ' ' || u.apellido AS solicitante,
            a.nombre || ' ' || a.apellido AS asignado
     FROM servicios_generales s
@@ -412,13 +414,13 @@ router.get('/ssgg', (req, res) => {
   res.json({ success: true, data });
 });
 
-router.post('/ssgg', (req, res) => {
+router.post('/ssgg', async (req, res) => {
   const b = req.body || {};
   if (!b.titulo || !b.categoria) {
     return res.status(400).json({ success: false, message: 'Título y categoría requeridos' });
   }
-  const codigo = nextCode(req.db, 'servicios_generales', 'codigo', 'SSGG-');
-  const info = req.db.prepare(`
+  const codigo = await nextCode(req.db, 'servicios_generales', 'codigo', 'SSGG-');
+  const info = await req.db.prepare(`
     INSERT INTO servicios_generales
       (codigo, categoria, prioridad, titulo, descripcion, ubicacion, fecha_requerida, estado, solicitante_id, asignado_id)
     VALUES (?, ?, ?, ?, ?, ?, ?, 'Abierto', ?, ?)
@@ -430,10 +432,10 @@ router.post('/ssgg', (req, res) => {
   res.status(201).json({ success: true, data: { id: info.lastInsertRowid, codigo } });
 });
 
-router.post('/ssgg/:id', (req, res) => {
+router.post('/ssgg/:id', async (req, res) => {
   if (denyUnlessFlag(req, res, 'flag_ssgg', 'Solo personal de Servicios Generales puede gestionar tickets')) return;
   const b = req.body || {};
-  req.db.prepare(`
+  await req.db.prepare(`
     UPDATE servicios_generales
     SET estado = COALESCE(?, estado), fecha_inicio = COALESCE(?, fecha_inicio),
         fecha_termino_estimada = COALESCE(?, fecha_termino_estimada),
@@ -451,8 +453,8 @@ router.post('/ssgg/:id', (req, res) => {
 });
 
 /* ========== AGENDA CAMIÓN PLUMA ========== */
-router.get('/agenda', (req, res) => {
-  const data = req.db.prepare(`
+router.get('/agenda', async (req, res) => {
+  const data = await req.db.prepare(`
     SELECT a.*, c.codigo AS ceco_codigo
     FROM agenda_camion_pluma_v2 a
     LEFT JOIN cecos c ON c.id = a.ceco_id
@@ -465,13 +467,13 @@ router.get('/agenda', (req, res) => {
   });
 });
 
-router.post('/agenda', (req, res) => {
+router.post('/agenda', async (req, res) => {
   if (denyUnlessFlag(req, res, 'flag_camion_pluma', 'Solo control de agenda (perfil Camión Pluma) puede programar')) return;
   const b = req.body || {};
   if (!b.fecha || !b.empresa) {
     return res.status(400).json({ success: false, message: 'Empresa y fecha requeridos' });
   }
-  const info = req.db.prepare(`
+  const info = await req.db.prepare(`
     INSERT INTO agenda_camion_pluma_v2
       (empresa, fecha, hora_inicio, hora_fin, tipo_servicio, solicitante, chofer, ceco_id, proyecto,
        origen, destino, direccion, contacto, telefono, kilometraje, orden_compra, detalle_material,
@@ -487,15 +489,15 @@ router.post('/agenda', (req, res) => {
   res.status(201).json({ success: true, data: { id: info.lastInsertRowid } });
 });
 
-router.post('/agenda/:id/eliminar', (req, res) => {
+router.post('/agenda/:id/eliminar', async (req, res) => {
   if (denyUnlessFlag(req, res, 'flag_camion_pluma', 'Solo control de agenda puede eliminar servicios')) return;
-  req.db.prepare(`DELETE FROM agenda_camion_pluma_v2 WHERE id = ?`).run(Number(req.params.id));
+  await req.db.prepare(`DELETE FROM agenda_camion_pluma_v2 WHERE id = ?`).run(Number(req.params.id));
   res.json({ success: true });
 });
 
 /* ========== CHECKLIST FLOTA ========== */
-router.get('/checklist', (req, res) => {
-  const data = req.db.prepare(`
+router.get('/checklist', async (req, res) => {
+  const data = await req.db.prepare(`
     SELECT c.*, u.nombre || ' ' || u.apellido AS conductor,
            t.nombre || ' ' || t.apellido AS tecnico
     FROM checklist_flota c
@@ -511,11 +513,11 @@ router.get('/checklist', (req, res) => {
   });
 });
 
-router.post('/checklist', (req, res) => {
+router.post('/checklist', async (req, res) => {
   if (denyUnlessFlag(req, res, 'flag_checklist', 'Solo usuarios de Checklist Flota pueden registrar inspecciones')) return;
   const b = req.body || {};
   if (!b.patente) return res.status(400).json({ success: false, message: 'Patente requerida' });
-  const info = req.db.prepare(`
+  const info = await req.db.prepare(`
     INSERT INTO checklist_flota
       (patente, kilometraje, fecha, conductor_id, tecnico_asignado_id, estado_general, neumaticos, luces, frenos, aceite, documentos, observaciones)
     VALUES (?, ?, COALESCE(?, date('now')), ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -528,26 +530,26 @@ router.post('/checklist', (req, res) => {
   res.status(201).json({ success: true, data: { id: info.lastInsertRowid } });
 });
 
-router.post('/checklist/:id/asignar', (req, res) => {
+router.post('/checklist/:id/asignar', async (req, res) => {
   if (denyUnlessFlag(req, res, 'flag_flota', 'Solo encargados de flota pueden tomar requerimientos')) return;
   const tecnicoId = req.body?.tecnico_asignado_id != null
     ? Number(req.body.tecnico_asignado_id)
     : req.auth.userId;
-  req.db.prepare(`
+  await req.db.prepare(`
     UPDATE checklist_flota SET tecnico_asignado_id = ? WHERE id = ? AND anulado = 0
   `).run(tecnicoId, Number(req.params.id));
   res.json({ success: true });
 });
 
-router.post('/checklist/:id/anular', (req, res) => {
+router.post('/checklist/:id/anular', async (req, res) => {
   if (denyUnlessFlag(req, res, 'flag_checklist', 'No autorizado a anular checklists')) return;
-  req.db.prepare(`UPDATE checklist_flota SET anulado = 1 WHERE id = ?`).run(Number(req.params.id));
+  await req.db.prepare(`UPDATE checklist_flota SET anulado = 1 WHERE id = ?`).run(Number(req.params.id));
   res.json({ success: true });
 });
 
 /* ========== TELECOM ========== */
-router.get('/telecom', (req, res) => {
-  const data = req.db.prepare(`
+router.get('/telecom', async (req, res) => {
+  const data = await req.db.prepare(`
     SELECT t.*, c.codigo AS ceco_codigo,
            u.nombre || ' ' || u.apellido AS solicitante,
            a.nombre || ' ' || a.apellido AS asignado
@@ -560,11 +562,11 @@ router.get('/telecom', (req, res) => {
   res.json({ success: true, data });
 });
 
-router.post('/telecom', (req, res) => {
+router.post('/telecom', async (req, res) => {
   const b = req.body || {};
   if (!b.tipo_solicitud) return res.status(400).json({ success: false, message: 'Tipo requerido' });
-  const codigo = nextCode(req.db, 'requerimientos_telecom', 'codigo', 'TEL-');
-  const info = req.db.prepare(`
+  const codigo = await nextCode(req.db, 'requerimientos_telecom', 'codigo', 'TEL-');
+  const info = await req.db.prepare(`
     INSERT INTO requerimientos_telecom
       (codigo, tipo_solicitud, ceco_id, tipo_equipo, numero_linea, direccion_instalacion,
        fecha_requerida, descripcion, estado, solicitante_id)
@@ -576,9 +578,9 @@ router.post('/telecom', (req, res) => {
   res.status(201).json({ success: true, data: { id: info.lastInsertRowid, codigo } });
 });
 
-router.post('/telecom/:id', (req, res) => {
+router.post('/telecom/:id', async (req, res) => {
   const b = req.body || {};
-  req.db.prepare(`
+  await req.db.prepare(`
     UPDATE requerimientos_telecom
     SET estado = COALESCE(?, estado), asignado_id = COALESCE(?, asignado_id)
     WHERE id = ?
@@ -587,8 +589,8 @@ router.post('/telecom/:id', (req, res) => {
 });
 
 /* ========== CONTRATOS ========== */
-router.get('/contratos', (req, res) => {
-  const data = req.db.prepare(`
+router.get('/contratos', async (req, res) => {
+  const data = await req.db.prepare(`
     SELECT c.*, u.nombre || ' ' || u.apellido AS creador
     FROM seguimiento_contratos c
     LEFT JOIN usuarios u ON u.id = c.creado_por
@@ -597,11 +599,11 @@ router.get('/contratos', (req, res) => {
   res.json({ success: true, data });
 });
 
-router.post('/contratos', (req, res) => {
+router.post('/contratos', async (req, res) => {
   const b = req.body || {};
   if (!b.descripcion) return res.status(400).json({ success: false, message: 'Descripción requerida' });
-  const codigo = nextCode(req.db, 'seguimiento_contratos', 'codigo', 'CTR-');
-  const info = req.db.prepare(`
+  const codigo = await nextCode(req.db, 'seguimiento_contratos', 'codigo', 'CTR-');
+  const info = await req.db.prepare(`
     INSERT INTO seguimiento_contratos
       (codigo, proveedor_id, proveedor_nombre, descripcion, estado, creado_por)
     VALUES (?, ?, ?, ?, 'Borrador', ?)
@@ -609,9 +611,9 @@ router.post('/contratos', (req, res) => {
   res.status(201).json({ success: true, data: { id: info.lastInsertRowid, codigo } });
 });
 
-router.post('/contratos/:id', (req, res) => {
+router.post('/contratos/:id', async (req, res) => {
   const b = req.body || {};
-  req.db.prepare(`
+  await req.db.prepare(`
     UPDATE seguimiento_contratos
     SET estado = COALESCE(?, estado), descripcion = COALESCE(?, descripcion),
         versiones = COALESCE(?, versiones), garantias = COALESCE(?, garantias)
@@ -626,8 +628,8 @@ router.post('/contratos/:id', (req, res) => {
 });
 
 /* ========== APROBACIÓN FACTURAS ========== */
-router.get('/facturas', (req, res) => {
-  const lotes = req.db.prepare(`
+router.get('/facturas', async (req, res) => {
+  const lotes = await req.db.prepare(`
     SELECT l.*, c.nombre || ' ' || c.apellido AS creador,
            a.nombre || ' ' || a.apellido AS aprobador
     FROM aprobacion_facturas_lote l
@@ -635,35 +637,36 @@ router.get('/facturas', (req, res) => {
     LEFT JOIN usuarios a ON a.id = l.aprobador_id
     ORDER BY l.id DESC
   `).all();
-  const items = req.db.prepare(`SELECT * FROM aprobacion_facturas ORDER BY id`).all();
+  const items = await req.db.prepare(`SELECT * FROM aprobacion_facturas ORDER BY id`).all();
   res.json({ success: true, data: { lotes, items } });
 });
 
-router.post('/facturas/lotes', (req, res) => {
+router.post('/facturas/lotes', async (req, res) => {
   const b = req.body || {};
-  const codigo = nextCode(req.db, 'aprobacion_facturas_lote', 'codigo', 'LOTE-');
+  const codigo = await nextCode(req.db, 'aprobacion_facturas_lote', 'codigo', 'LOTE-');
   const facturas = Array.isArray(b.facturas) ? b.facturas : [];
-  const tx = req.db.transaction(() => {
-    const info = req.db.prepare(`
+  const tx = req.db.transaction(async () => {
+    const info = await req.db.prepare(`
       INSERT INTO aprobacion_facturas_lote (codigo, descripcion, creado_por, aprobador_id, estado)
       VALUES (?, ?, ?, ?, 'Pendiente')
     `).run(codigo, b.descripcion || null, req.auth.userId, b.aprobador_id || null);
     const loteId = info.lastInsertRowid;
-    const ins = req.db.prepare(`
+    const ins = await req.db.prepare(`
       INSERT INTO aprobacion_facturas (lote_id, numero_factura, proveedor, monto, estado)
       VALUES (?, ?, ?, ?, 'Pendiente')
     `);
     for (const f of facturas) {
-      ins.run(loteId, f.numero_factura || null, f.proveedor || null, Number(f.monto) || 0);
+      await ins.run(loteId, f.numero_factura || null, f.proveedor || null, Number(f.monto) || 0);
     }
     return loteId;
   });
-  res.status(201).json({ success: true, data: { id: tx(), codigo } });
+  const loteId = await tx();
+  res.status(201).json({ success: true, data: { id: loteId, codigo } });
 });
 
-router.post('/facturas/:id/decidir', (req, res) => {
+router.post('/facturas/:id/decidir', async (req, res) => {
   const ok = req.body?.aprobar !== false;
-  req.db.prepare(`
+  await req.db.prepare(`
     UPDATE aprobacion_facturas
     SET estado = ?, observacion = ?, fecha_decision = datetime('now')
     WHERE id = ?
@@ -672,51 +675,51 @@ router.post('/facturas/:id/decidir', (req, res) => {
 });
 
 /* ========== CONFIGURACIONES ========== */
-router.get('/config/resumen', (req, res) => {
+router.get('/config/resumen', async (req, res) => {
   res.json({
     success: true,
     data: {
-      usuarios: req.db.prepare(`SELECT COUNT(*) AS c FROM usuarios WHERE activo = 1`).get().c,
-      roles: req.db.prepare(`SELECT COUNT(*) AS c FROM roles WHERE activo = 1`).get().c,
-      cecos: req.db.prepare(`SELECT COUNT(*) AS c FROM cecos WHERE activo = 1`).get().c,
-      materiales: req.db.prepare(`SELECT COUNT(*) AS c FROM materiales WHERE activo = 1`).get().c,
-      proveedores: req.db.prepare(`SELECT COUNT(*) AS c FROM proveedores WHERE activo = 1`).get().c,
-      bodegas: req.db.prepare(`SELECT COUNT(*) AS c FROM bodegas WHERE activo = 1`).get().c
+      usuarios: (await req.db.prepare(`SELECT COUNT(*) AS c FROM usuarios WHERE activo = 1`).get()).c,
+      roles: (await req.db.prepare(`SELECT COUNT(*) AS c FROM roles WHERE activo = 1`).get()).c,
+      cecos: (await req.db.prepare(`SELECT COUNT(*) AS c FROM cecos WHERE activo = 1`).get()).c,
+      materiales: (await req.db.prepare(`SELECT COUNT(*) AS c FROM materiales WHERE activo = 1`).get()).c,
+      proveedores: (await req.db.prepare(`SELECT COUNT(*) AS c FROM proveedores WHERE activo = 1`).get()).c,
+      bodegas: (await req.db.prepare(`SELECT COUNT(*) AS c FROM bodegas WHERE activo = 1`).get()).c
     }
   });
 });
 
-router.post('/config/materiales', (req, res) => {
+router.post('/config/materiales', async (req, res) => {
   const b = req.body || {};
   if (!b.codigo || !b.nombre) return res.status(400).json({ success: false, message: 'Código y nombre requeridos' });
-  const info = req.db.prepare(`
+  const info = await req.db.prepare(`
     INSERT INTO materiales (codigo, nombre, descripcion, unidad, precio, stock)
     VALUES (?, ?, ?, ?, ?, ?)
   `).run(b.codigo, b.nombre, b.descripcion || null, b.unidad || 'UN', Number(b.precio) || 0, Number(b.stock) || 0);
   res.status(201).json({ success: true, data: { id: info.lastInsertRowid } });
 });
 
-router.post('/config/proveedores', (req, res) => {
+router.post('/config/proveedores', async (req, res) => {
   const b = req.body || {};
   if (!b.razon_social || !b.rut) return res.status(400).json({ success: false, message: 'Razón social y RUT requeridos' });
-  const info = req.db.prepare(`
+  const info = await req.db.prepare(`
     INSERT INTO proveedores (razon_social, rut, email, telefono, direccion)
     VALUES (?, ?, ?, ?, ?)
   `).run(b.razon_social, b.rut, b.email || null, b.telefono || null, b.direccion || null);
   res.status(201).json({ success: true, data: { id: info.lastInsertRowid } });
 });
 
-router.post('/config/cecos', (req, res) => {
+router.post('/config/cecos', async (req, res) => {
   const b = req.body || {};
   if (!b.codigo || !b.nombre) return res.status(400).json({ success: false, message: 'Código y nombre requeridos' });
-  const info = req.db.prepare(`
+  const info = await req.db.prepare(`
     INSERT INTO cecos (codigo, nombre, descripcion, jefe_proyecto_id)
     VALUES (?, ?, ?, ?)
   `).run(b.codigo, b.nombre, b.descripcion || null, b.jefe_proyecto_id || null);
   res.status(201).json({ success: true, data: { id: info.lastInsertRowid } });
 });
 
-router.post('/config/usuarios', (req, res) => {
+router.post('/config/usuarios', async (req, res) => {
   const bcrypt = require('bcryptjs');
   const b = req.body || {};
   if (!b.nombre || !b.apellido || !b.email || !b.password) {
@@ -725,7 +728,7 @@ router.post('/config/usuarios', (req, res) => {
   const hash = bcrypt.hashSync(b.password, 10);
   const flag = (v) => (v === true || v === 1 || v === '1' ? 1 : 0);
   try {
-    const info = req.db.prepare(`
+    const info = await req.db.prepare(`
       INSERT INTO usuarios (
         nombre, apellido, email, password, cargo, rol_id, departamento_id, telefono,
         flag_checklist, flag_flota, flag_ssgg, flag_camion_pluma, flag_aprobador_salida
@@ -754,25 +757,25 @@ router.post('/config/usuarios', (req, res) => {
   }
 });
 
-router.post('/config/usuarios/:id', (req, res) => {
+router.post('/config/usuarios/:id', async (req, res) => {
   const bcrypt = require('bcryptjs');
   const b = req.body || {};
   const id = Number(req.params.id);
-  const existing = req.db.prepare(`SELECT id FROM usuarios WHERE id = ?`).get(id);
+  const existing = await req.db.prepare(`SELECT id FROM usuarios WHERE id = ?`).get(id);
   if (!existing) return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
 
   const flag = (v, fallback) => {
     if (v === undefined) return fallback;
     return v === true || v === 1 || v === '1' ? 1 : 0;
   };
-  const cur = req.db.prepare(`SELECT * FROM usuarios WHERE id = ?`).get(id);
+  const cur = await req.db.prepare(`SELECT * FROM usuarios WHERE id = ?`).get(id);
 
   let password = cur.password;
   if (b.password && String(b.password).trim()) {
     password = bcrypt.hashSync(String(b.password).trim(), 10);
   }
 
-  req.db.prepare(`
+  await req.db.prepare(`
     UPDATE usuarios SET
       nombre = ?, apellido = ?, email = ?, password = ?, cargo = ?,
       rol_id = ?, departamento_id = ?, telefono = ?,
@@ -800,19 +803,19 @@ router.post('/config/usuarios/:id', (req, res) => {
   res.json({ success: true, message: 'Usuario actualizado' });
 });
 
-router.get('/config/roles', (req, res) => {
-  res.json({ success: true, data: req.db.prepare(`SELECT * FROM roles WHERE activo = 1`).all() });
+router.get('/config/roles', async (req, res) => {
+  res.json({ success: true, data: await req.db.prepare(`SELECT * FROM roles WHERE activo = 1`).all() });
 });
 
-router.get('/config/departamentos', (req, res) => {
+router.get('/config/departamentos', async (req, res) => {
   res.json({
     success: true,
-    data: req.db.prepare(`SELECT id, nombre FROM departamentos WHERE activo = 1 ORDER BY nombre`).all()
+    data: await req.db.prepare(`SELECT id, nombre FROM departamentos WHERE activo = 1 ORDER BY nombre`).all()
   });
 });
 
 /* ========== REPORTES ========== */
-router.get('/reportes', (req, res) => {
+router.get('/reportes', async (req, res) => {
   const desde = req.query.desde || null;
   const hasta = req.query.hasta || null;
   const modulo = req.query.modulo || 'materiales';
@@ -827,7 +830,7 @@ router.get('/reportes', (req, res) => {
 
   if (modulo === 'compras') {
     const f = dateFilter('s.fecha_solicitud');
-    const data = req.db.prepare(`
+    const data = await req.db.prepare(`
       SELECT s.numero_solicitud AS codigo, s.estado, s.fecha_solicitud, s.observaciones,
              u.nombre || ' ' || u.apellido AS solicitante
       FROM solicitudes_compras s
@@ -839,7 +842,7 @@ router.get('/reportes', (req, res) => {
   }
   if (modulo === 'telecom') {
     const f = dateFilter('t.fecha_creacion');
-    const data = req.db.prepare(`
+    const data = await req.db.prepare(`
       SELECT t.codigo, t.tipo_solicitud, t.estado, t.fecha_creacion,
              u.nombre || ' ' || u.apellido AS solicitante
       FROM requerimientos_telecom t
@@ -851,7 +854,7 @@ router.get('/reportes', (req, res) => {
   }
   if (modulo === 'ssgg') {
     const f = dateFilter('s.fecha_creacion');
-    const data = req.db.prepare(`
+    const data = await req.db.prepare(`
       SELECT s.codigo, s.categoria, s.titulo, s.estado, s.prioridad, s.fecha_creacion
       FROM servicios_generales s WHERE s.eliminado = 0 ${f.clause}
       ORDER BY s.id DESC
@@ -860,7 +863,7 @@ router.get('/reportes', (req, res) => {
   }
   if (modulo === 'flota') {
     const f = dateFilter('c.fecha');
-    const data = req.db.prepare(`
+    const data = await req.db.prepare(`
       SELECT c.patente, c.kilometraje, c.fecha, c.estado_general, c.observaciones
       FROM checklist_flota c WHERE c.anulado = 0 ${f.clause}
       ORDER BY c.id DESC
@@ -869,7 +872,7 @@ router.get('/reportes', (req, res) => {
   }
 
   const f = dateFilter('s.fecha_solicitud');
-  const data = req.db.prepare(`
+  const data = await req.db.prepare(`
     SELECT s.codigo, s.numero_proyecto, e.nombre AS estado, s.fecha_solicitud,
            u.nombre || ' ' || u.apellido AS solicitante, s.ubicacion_entrega
     FROM solicitudes_materiales s
@@ -882,8 +885,8 @@ router.get('/reportes', (req, res) => {
 });
 
 /* ========== PAPELERA ========== */
-router.get('/papelera', (req, res) => {
-  const data = req.db.prepare(`
+router.get('/papelera', async (req, res) => {
+  const data = await req.db.prepare(`
     SELECT p.*, u.nombre || ' ' || u.apellido AS eliminado_por_nombre
     FROM papelera p
     LEFT JOIN usuarios u ON u.id = p.eliminado_por
@@ -892,8 +895,8 @@ router.get('/papelera', (req, res) => {
   res.json({ success: true, data });
 });
 
-router.post('/papelera/:id/restaurar', (req, res) => {
-  const item = req.db.prepare(`SELECT * FROM papelera WHERE id = ?`).get(Number(req.params.id));
+router.post('/papelera/:id/restaurar', async (req, res) => {
+  const item = await req.db.prepare(`SELECT * FROM papelera WHERE id = ?`).get(Number(req.params.id));
   if (!item) return res.status(404).json({ success: false, message: 'No encontrado' });
 
   const map = {
@@ -903,13 +906,13 @@ router.post('/papelera/:id/restaurar', (req, res) => {
     materiales: 'UPDATE solicitudes_materiales SET eliminado = 0 WHERE id = ?'
   };
   const sql = map[item.tipo];
-  if (sql) req.db.prepare(sql).run(item.referencia_id);
-  req.db.prepare(`DELETE FROM papelera WHERE id = ?`).run(item.id);
+  if (sql) await req.db.prepare(sql).run(item.referencia_id);
+  await req.db.prepare(`DELETE FROM papelera WHERE id = ?`).run(item.id);
   res.json({ success: true, message: 'Restaurado' });
 });
 
-router.post('/papelera/:id/eliminar', (req, res) => {
-  req.db.prepare(`DELETE FROM papelera WHERE id = ?`).run(Number(req.params.id));
+router.post('/papelera/:id/eliminar', async (req, res) => {
+  await req.db.prepare(`DELETE FROM papelera WHERE id = ?`).run(Number(req.params.id));
   res.json({ success: true, message: 'Eliminado permanentemente' });
 });
 

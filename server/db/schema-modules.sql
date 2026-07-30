@@ -106,6 +106,7 @@ CREATE TABLE IF NOT EXISTS solicitud_graficas (
 CREATE TABLE IF NOT EXISTS servicios_generales (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   codigo TEXT NOT NULL UNIQUE,
+  numero_caso TEXT,
   categoria TEXT NOT NULL,
   prioridad TEXT DEFAULT 'Media',
   titulo TEXT NOT NULL,
@@ -115,9 +116,16 @@ CREATE TABLE IF NOT EXISTS servicios_generales (
   fecha_inicio TEXT,
   fecha_termino_estimada TEXT,
   fecha_termino_real TEXT,
+  fecha_completado TEXT,
   estado TEXT DEFAULT 'Abierto',
   solicitante_id INTEGER,
   asignado_id INTEGER,
+  tecnico_asignado TEXT,
+  proveedor TEXT,
+  costo_estimado REAL,
+  costo_real REAL,
+  observaciones TEXT,
+  adjuntos TEXT,
   eliminado INTEGER NOT NULL DEFAULT 0,
   fecha_creacion TEXT NOT NULL DEFAULT (datetime('now')),
   FOREIGN KEY (solicitante_id) REFERENCES usuarios(id),
@@ -126,21 +134,42 @@ CREATE TABLE IF NOT EXISTS servicios_generales (
 
 CREATE TABLE IF NOT EXISTS checklist_flota (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  codigo TEXT,
   patente TEXT NOT NULL,
   kilometraje INTEGER,
   fecha TEXT NOT NULL DEFAULT (date('now')),
+  fecha_inspeccion TEXT,
   conductor_id INTEGER,
+  operario_id INTEGER,
   tecnico_asignado_id INTEGER,
   estado_general TEXT DEFAULT 'OK',
   neumaticos TEXT DEFAULT 'OK',
   luces TEXT DEFAULT 'OK',
   frenos TEXT DEFAULT 'OK',
   aceite TEXT DEFAULT 'OK',
+  nivel_aceite TEXT,
+  nivel_combustible TEXT,
+  limpieza_interior TEXT,
+  limpieza_exterior TEXT,
   documentos TEXT DEFAULT 'OK',
+  documentacion TEXT,
+  kit_emergencia TEXT,
+  extintor TEXT,
+  rueda_repuesto TEXT,
+  requiere_atencion INTEGER DEFAULT 0,
+  estado_seguimiento TEXT DEFAULT 'sin_revisar',
   observaciones TEXT,
+  foto_frontal TEXT,
+  foto_lateral_izq TEXT,
+  foto_lateral_der TEXT,
+  foto_trasera TEXT,
+  foto_rueda TEXT,
+  foto_kit_herramientas TEXT,
+  foto_colision TEXT,
   anulado INTEGER NOT NULL DEFAULT 0,
   fecha_creacion TEXT NOT NULL DEFAULT (datetime('now')),
   FOREIGN KEY (conductor_id) REFERENCES usuarios(id),
+  FOREIGN KEY (operario_id) REFERENCES usuarios(id),
   FOREIGN KEY (tecnico_asignado_id) REFERENCES usuarios(id)
 );
 
@@ -280,3 +309,44 @@ CREATE INDEX IF NOT EXISTS idx_ssgg_estado ON servicios_generales(estado);
 CREATE INDEX IF NOT EXISTS idx_checklist_patente ON checklist_flota(patente);
 CREATE INDEX IF NOT EXISTS idx_telecom_estado ON requerimientos_telecom(estado);
 CREATE INDEX IF NOT EXISTS idx_papelera_tipo ON papelera(tipo);
+
+-- Liberadores / aprobadores (desde MySQL liberadores_config)
+CREATE TABLE IF NOT EXISTS liberadores_config (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  codigo TEXT NOT NULL UNIQUE,
+  modulo TEXT,
+  titulo TEXT,
+  descripcion TEXT,
+  usuario_id INTEGER,
+  activo INTEGER NOT NULL DEFAULT 1,
+  FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
+);
+
+CREATE TABLE IF NOT EXISTS liberadores_extra (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  codigo TEXT NOT NULL,
+  usuario_id INTEGER NOT NULL,
+  orden INTEGER DEFAULT 0,
+  FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
+);
+
+CREATE TABLE IF NOT EXISTS usuarios_proveedor (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  proveedor_id INTEGER,
+  email TEXT NOT NULL UNIQUE,
+  password TEXT NOT NULL,
+  nombre TEXT,
+  activo INTEGER NOT NULL DEFAULT 1,
+  fecha_creacion TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (proveedor_id) REFERENCES proveedores(id)
+);
+
+CREATE TABLE IF NOT EXISTS portal_proveedor_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  solicitud_id INTEGER,
+  accion TEXT,
+  detalle TEXT,
+  usuario_ref TEXT,
+  fecha_creacion TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (solicitud_id) REFERENCES solicitudes_materiales(id)
+);

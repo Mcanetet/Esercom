@@ -10,11 +10,11 @@ function startAngelScheduler() {
   started = true;
 
   // Cada hora: sincroniza alertas de pendientes
-  cron.schedule('15 * * * *', () => {
+  cron.schedule('15 * * * *', async () => {
     for (const company of config.companies) {
       try {
         const db = getDb(company.slug);
-        const r = syncAlerts(db);
+        const r = await syncAlerts(db);
         if (r.created > 0) {
           console.log(`[Angel IA] ${company.name}: ${r.created} alertas nuevas`);
         }
@@ -30,7 +30,7 @@ function startAngelScheduler() {
     for (const company of config.companies) {
       try {
         const db = getDb(company.slug);
-        const cfg = getConfig(db);
+        const cfg = await getConfig(db);
         if (!cfg?.reporte_semanal) continue;
         const dia = Number(cfg.dia_reporte ?? 1);
         if (dia !== today) continue;

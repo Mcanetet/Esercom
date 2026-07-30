@@ -6,3 +6,5 @@ data/reportes/
 uploads/*
 !uploads/.gitkeep
 node_modules/
+import/
+*.sql.bak

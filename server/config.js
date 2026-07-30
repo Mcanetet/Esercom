@@ -44,14 +44,28 @@ const COMPANIES = [
   }
 ];
 
+const dbDriver = String(process.env.DB_DRIVER || 'sqlite').toLowerCase();
+
 module.exports = {
   port: Number(process.env.PORT) || 3000,
   jwtSecret: process.env.JWT_SECRET || 'esercom-dev-secret',
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '8h',
+  adminPortalPassword: process.env.ADMIN_PORTAL_PASSWORD
+    || (process.env.NODE_ENV === 'production' ? '' : 'esercom-admin'),
   dataDir: path.join(__dirname, '..', 'data'),
   publicDir: path.join(__dirname, '..', 'public'),
   companies: COMPANIES,
   getCompany(slug) {
     return COMPANIES.find((c) => c.slug === String(slug || '').toLowerCase());
+  },
+  /** sqlite (local) | mysql (Bluehosting / gosercom_productivo_db) */
+  dbDriver,
+  isMysql: dbDriver === 'mysql',
+  mysql: {
+    host: process.env.DB_HOST || 'localhost',
+    port: Number(process.env.DB_PORT) || 3306,
+    user: process.env.DB_USER || '',
+    password: process.env.DB_PASSWORD || '',
+    database: process.env.DB_NAME || 'gosercom_productivo_db'
   }
 };
