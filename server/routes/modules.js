@@ -897,6 +897,32 @@ router.post('/config/usuarios/:id', async (req, res) => {
   res.json({ success: true, message: 'Usuario actualizado' });
 });
 
+router.post('/config/usuarios/:id/eliminar', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) return res.status(400).json({ success: false, message: 'ID inválido' });
+    if (id === req.auth.userId) {
+      return res.status(400).json({ success: false, message: 'No puedes eliminar tu propio usuario' });
+    }
+    const existing = await req.db.prepare(`SELECT id, email, nombre, apellido FROM usuarios WHERE id = ?`).get(id);
+    if (!existing) return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
+
+    // Soft delete (mantiene historial / FKs)
+    try {
+      await req.db.prepare(`UPDATE usuarios SET activo = 0 WHERE id = ?`).run(id);
+    } catch (_) {
+      await req.db.prepare(`DELETE FROM usuarios WHERE id = ?`).run(id);
+    }
+    try {
+      await toTrash(req.db, req.auth.userId, 'usuario', id, existing.email, `${existing.nombre} ${existing.apellido}`, existing);
+    } catch (_) { /* papelera opcional */ }
+
+    res.json({ success: true, message: 'Usuario eliminado' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message || 'No se pudo eliminar' });
+  }
+});
+
 router.get('/config/roles', async (req, res) => {
   try {
     let data;
@@ -905,10 +931,97 @@ router.get('/config/roles', async (req, res) => {
     } catch (_) {
       data = await req.db.prepare(`SELECT * FROM roles`).all();
     }
-    res.json({ success: true, data: data || [] });
+    // Normaliza permisos → paginas_permitidas para el front
+    data = (data || []).map((r) => ({
+      ...r,
+      paginas_permitidas: r.paginas_permitidas != null ? r.paginas_permitidas : r.permisos
+    }));
+    res.json({ success: true, data });
   } catch (err) {
     console.error('config/roles', err);
     res.status(500).json({ success: false, message: err.message || 'No se pudieron cargar roles', data: [] });
+  }
+});
+
+router.post('/config/roles', async (req, res) => {
+  try {
+    const b = req.body || {};
+    const nombre = String(b.nombre || '').trim();
+    if (!nombre) return res.status(400).json({ success: false, message: 'Nombre del rol requerido' });
+    const descripcion = b.descripcion || null;
+    const pages = Array.isArray(b.paginas_permitidas) ? b.paginas_permitidas : ['*'];
+    const pagesJson = JSON.stringify(pages);
+
+    let info;
+    try {
+      info = await req.db.prepare(`
+        INSERT INTO roles (nombre, descripcion, paginas_permitidas, activo)
+        VALUES (?, ?, ?, 1)
+      `).run(nombre, descripcion, pagesJson);
+    } catch (_) {
+      info = await req.db.prepare(`
+        INSERT INTO roles (nombre, descripcion, permisos)
+        VALUES (?, ?, ?)
+      `).run(nombre, descripcion, pagesJson);
+    }
+    res.status(201).json({ success: true, data: { id: info.lastInsertRowid }, message: 'Rol creado' });
+  } catch (err) {
+    if (String(err.message || '').toLowerCase().includes('unique') || String(err.message || '').includes('Duplicate')) {
+      return res.status(400).json({ success: false, message: 'Ya existe un rol con ese nombre' });
+    }
+    res.status(500).json({ success: false, message: err.message || 'No se pudo crear el rol' });
+  }
+});
+
+router.post('/config/roles/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const b = req.body || {};
+    const existing = await req.db.prepare(`SELECT * FROM roles WHERE id = ?`).get(id);
+    if (!existing) return res.status(404).json({ success: false, message: 'Rol no encontrado' });
+
+    const nombre = String(b.nombre || existing.nombre).trim();
+    const descripcion = b.descripcion !== undefined ? b.descripcion : existing.descripcion;
+    const pages = Array.isArray(b.paginas_permitidas)
+      ? b.paginas_permitidas
+      : (existing.paginas_permitidas || existing.permisos || ['*']);
+    const pagesJson = typeof pages === 'string' ? pages : JSON.stringify(pages);
+
+    try {
+      await req.db.prepare(`
+        UPDATE roles SET nombre = ?, descripcion = ?, paginas_permitidas = ? WHERE id = ?
+      `).run(nombre, descripcion, pagesJson, id);
+    } catch (_) {
+      await req.db.prepare(`
+        UPDATE roles SET nombre = ?, descripcion = ?, permisos = ? WHERE id = ?
+      `).run(nombre, descripcion, pagesJson, id);
+    }
+    res.json({ success: true, message: 'Rol actualizado' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message || 'No se pudo actualizar el rol' });
+  }
+});
+
+router.post('/config/roles/:id/eliminar', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const inUse = await req.db.prepare(`
+      SELECT COUNT(*) AS c FROM usuarios WHERE rol_id = ? AND (activo = 1 OR activo IS NULL)
+    `).get(id);
+    if (Number(inUse?.c || 0) > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Hay ${inUse.c} usuario(s) con este rol. Reasígnarlos antes de eliminar.`
+      });
+    }
+    try {
+      await req.db.prepare(`UPDATE roles SET activo = 0 WHERE id = ?`).run(id);
+    } catch (_) {
+      await req.db.prepare(`DELETE FROM roles WHERE id = ?`).run(id);
+    }
+    res.json({ success: true, message: 'Rol eliminado' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message || 'No se pudo eliminar el rol' });
   }
 });
 

@@ -6,7 +6,7 @@
   <title>Configuraciones - ESERCOM</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <link href="/css/app.css?v=cfg1" rel="stylesheet">
+  <link href="/css/app.css?v=cfg2" rel="stylesheet">
 </head>
 <body>
   <script src="/js/auth.js?v=resp2"></script>
@@ -113,6 +113,14 @@
             </span>
             <i class="fas fa-chevron-right cfg-tile-arrow"></i>
           </button>
+          <button type="button" class="cfg-tile" data-open="modalRoles">
+            <span class="cfg-tile-icon" style="background:#334155"><i class="fas fa-user-shield"></i></span>
+            <span class="cfg-tile-body">
+              <strong>Roles</strong>
+              <small>${state.roles.length} roles del sistema</small>
+            </span>
+            <i class="fas fa-chevron-right cfg-tile-arrow"></i>
+          </button>
           <button type="button" class="cfg-tile" data-open="modalMats">
             <span class="cfg-tile-icon" style="background:#0f766e"><i class="fas fa-boxes"></i></span>
             <span class="cfg-tile-body">
@@ -164,8 +172,59 @@
                         <td>${u.email}</td>
                         <td>${u.rol || '—'}</td>
                         <td>${chips(u)}</td>
-                        <td><button type="button" class="btn btn-outline btn-sm" data-edit-user='${encodeURIComponent(JSON.stringify(u))}'>Editar</button></td>
+                        <td class="cfg-row-actions">
+                          <button type="button" class="btn btn-outline btn-sm" data-edit-user='${encodeURIComponent(JSON.stringify(u))}'>Editar</button>
+                          <button type="button" class="btn btn-danger btn-sm" data-del-user="${u.id}" data-del-name="${(u.nombre + ' ' + u.apellido).replace(/"/g, '')}" ${u.id === user.id ? 'disabled title="No puedes eliminarte"' : ''}>Eliminar</button>
+                        </td>
                       </tr>`).join('') || UI.emptyRow(5, 'Sin usuarios')}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Modal Roles -->
+        <div class="cfg-modal" id="modalRoles" role="dialog" aria-modal="true">
+          <div class="cfg-modal-backdrop" data-close></div>
+          <div class="cfg-modal-panel cfg-modal-sm">
+            <header class="cfg-modal-head">
+              <div>
+                <h2>Roles</h2>
+                <p>Define roles y permisos de acceso</p>
+              </div>
+              <button type="button" class="cfg-modal-x" data-close aria-label="Cerrar">&times;</button>
+            </header>
+            <div class="cfg-modal-body">
+              <form id="roleForm" class="cfg-inline-form" style="flex-direction:column;align-items:stretch">
+                <input type="hidden" id="rId">
+                <div class="form-group"><label>Nombre *</label><input id="rNombre" required placeholder="Ej: Bodeguero"></div>
+                <div class="form-group"><label>Descripción</label><input id="rDesc" placeholder="Opcional"></div>
+                <div class="form-group">
+                  <label>Páginas permitidas</label>
+                  <select id="rPages">
+                    <option value="*">Acceso total (*)</option>
+                    <option value="limited">Limitado (solo menú básico)</option>
+                  </select>
+                </div>
+                <div class="cfg-modal-footer" style="border:0;padding-top:0;margin-top:0">
+                  <button type="button" class="btn btn-secondary" id="btnRoleCancel" hidden>Cancelar edición</button>
+                  <button type="submit" class="btn btn-primary" id="btnRoleSave">Crear rol</button>
+                </div>
+              </form>
+              <div class="table-wrap" style="margin-top:1rem;max-height:320px;overflow:auto">
+                <table class="data">
+                  <thead><tr><th>Rol</th><th>Descripción</th><th></th></tr></thead>
+                  <tbody>
+                    ${state.roles.map((r) => `
+                      <tr>
+                        <td><strong>${r.nombre}</strong></td>
+                        <td>${r.descripcion || '—'}</td>
+                        <td class="cfg-row-actions">
+                          <button type="button" class="btn btn-outline btn-sm" data-edit-role='${encodeURIComponent(JSON.stringify(r))}'>Editar</button>
+                          <button type="button" class="btn btn-danger btn-sm" data-del-role="${r.id}" data-del-name="${String(r.nombre || '').replace(/"/g, '')}">Eliminar</button>
+                        </td>
+                      </tr>`).join('') || UI.emptyRow(3, 'Sin roles')}
                   </tbody>
                 </table>
               </div>
@@ -344,6 +403,77 @@
           openModal('modalUserForm');
         };
       });
+
+      document.querySelectorAll('[data-del-user]').forEach((btn) => {
+        btn.onclick = async () => {
+          const id = btn.getAttribute('data-del-user');
+          const name = btn.getAttribute('data-del-name') || 'este usuario';
+          if (!confirm(`¿Eliminar a ${name}? Dejará de poder iniciar sesión.`)) return;
+          try {
+            await Auth.api('/api/modulos/config/usuarios/' + id + '/eliminar', { method: 'POST', body: '{}' });
+            UI.flash('Usuario eliminado');
+            boot().then(() => openModal('modalUsers'));
+          } catch (err) { UI.flash(err.message, true); }
+        };
+      });
+
+      function resetRoleForm() {
+        rId.value = '';
+        rNombre.value = '';
+        rDesc.value = '';
+        rPages.value = '*';
+        btnRoleSave.textContent = 'Crear rol';
+        btnRoleCancel.hidden = true;
+      }
+
+      btnRoleCancel.onclick = () => resetRoleForm();
+
+      document.querySelectorAll('[data-edit-role]').forEach((btn) => {
+        btn.onclick = () => {
+          const r = JSON.parse(decodeURIComponent(btn.getAttribute('data-edit-role')));
+          rId.value = r.id;
+          rNombre.value = r.nombre || '';
+          rDesc.value = r.descripcion || '';
+          let pages = r.paginas_permitidas;
+          try { if (typeof pages === 'string') pages = JSON.parse(pages); } catch (_) {}
+          rPages.value = (Array.isArray(pages) && pages.includes('*')) || pages === '*' ? '*' : 'limited';
+          btnRoleSave.textContent = 'Guardar cambios';
+          btnRoleCancel.hidden = false;
+        };
+      });
+
+      document.querySelectorAll('[data-del-role]').forEach((btn) => {
+        btn.onclick = async () => {
+          const id = btn.getAttribute('data-del-role');
+          const name = btn.getAttribute('data-del-name') || 'este rol';
+          if (!confirm(`¿Eliminar el rol "${name}"?`)) return;
+          try {
+            await Auth.api('/api/modulos/config/roles/' + id + '/eliminar', { method: 'POST', body: '{}' });
+            UI.flash('Rol eliminado');
+            boot().then(() => openModal('modalRoles'));
+          } catch (err) { UI.flash(err.message, true); }
+        };
+      });
+
+      roleForm.onsubmit = async (e) => {
+        e.preventDefault();
+        try {
+          const pages = rPages.value === '*' ? ['*'] : ['home', 'solicitudes'];
+          const payload = {
+            nombre: rNombre.value.trim(),
+            descripcion: rDesc.value.trim() || null,
+            paginas_permitidas: pages
+          };
+          if (rId.value) {
+            await Auth.api('/api/modulos/config/roles/' + rId.value, { method: 'POST', body: JSON.stringify(payload) });
+            UI.flash('Rol actualizado');
+          } else {
+            await Auth.api('/api/modulos/config/roles', { method: 'POST', body: JSON.stringify(payload) });
+            UI.flash('Rol creado');
+          }
+          boot().then(() => openModal('modalRoles'));
+        } catch (err) { UI.flash(err.message, true); }
+      };
 
       userForm.onsubmit = async (e) => {
         e.preventDefault();
