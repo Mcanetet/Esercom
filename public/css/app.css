@@ -1535,3 +1535,49 @@ body.modal-open { overflow: hidden; }
   border-radius: 8px;
   font: inherit;
 }
+
+.role-all-access {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  padding: 0.65rem 0.75rem;
+  margin-bottom: 0.65rem;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.88rem;
+}
+.role-all-access input { margin-top: 0.15rem; flex-shrink: 0; }
+.role-pages-toolbar {
+  display: flex;
+  gap: 0.45rem;
+  margin-bottom: 0.55rem;
+}
+.role-pages-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.35rem;
+  max-height: 240px;
+  overflow: auto;
+  padding: 0.5rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+@media (min-width: 640px) {
+  .role-pages-grid { grid-template-columns: 1fr 1fr; }
+}
+.role-page-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  padding: 0.35rem 0.4rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.82rem;
+  line-height: 1.3;
+}
+.role-page-check:hover { background: #fff; }
+.role-page-check input { margin-top: 0.12rem; flex-shrink: 0; }
+.role-page-check input:disabled { opacity: 0.55; }

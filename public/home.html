@@ -10,13 +10,14 @@
   <link href="/css/app.css?v=resp2" rel="stylesheet">
 </head>
 <body class="page-home">
-  <script src="/js/auth.js?v=resp2"></script>
+  <script src="/js/auth.js?v=pages1"></script>
   <script>
     const user = renderShell(
       '/home.html',
       '<i class="fas fa-home"></i> Menú Principal'
     );
 
+    const canAccess = window.PagesCatalog?.canAccessPage || (() => true);
     const MODULES = [
       { href: '/solicitud-salida-materiales.html', icon: 'fa-boxes', color: '#0284c7', title: 'Salida de Materiales', group: 'Materiales' },
       { href: '/salida-material-por-actividad.html', icon: 'fa-layer-group', color: '#0369a1', title: 'Salida por Actividad', group: 'Materiales' },
@@ -47,7 +48,7 @@
         const nombre = (user.nombre || user.nombreCompleto || 'Usuario').split(' ')[0];
 
         const byGroup = {};
-        MODULES.forEach((m) => {
+        MODULES.filter((m) => canAccess(user, m.href.replace(/^\//, ''))).forEach((m) => {
           if (!byGroup[m.group]) byGroup[m.group] = [];
           byGroup[m.group].push(m);
         });

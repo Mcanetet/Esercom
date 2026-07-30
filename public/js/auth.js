@@ -1,3 +1,76 @@
+/**
+ * Catálogo de páginas — roles, sidebar y home (paginas_permitidas en BD).
+ */
+(function () {
+  const PAGES = [
+    { key: 'home.html', label: 'Menú Principal' },
+    { key: 'solicitud-salida-materiales.html', label: 'Solicitud de Salida Materiales' },
+    { key: 'salida-material-por-actividad.html', label: 'Salida Material por Actividad' },
+    { key: 'portal-proveedores.html', label: 'Portal Proveedores' },
+    { key: 'materiales-por-receta.html', label: 'Materiales por Receta' },
+    { key: 'solicitud-de-compras.html', label: 'Solicitud de Compras' },
+    { key: 'creacion-datos-maestros.html', label: 'Creación Datos Maestros' },
+    { key: 'tareas-operativas.html', label: 'Tareas Operativas' },
+    { key: 'solicitud-de-graficas.html', label: 'Solicitud de Gráficas' },
+    { key: 'serviciosgenerales.html', label: 'Servicios Generales' },
+    { key: 'agenda-camion-pluma.html', label: 'Agenda Camión Pluma' },
+    { key: 'checklist-flota.html', label: 'Checklist Flota' },
+    { key: 'telecomunicaciones.html', label: 'Telecomunicaciones' },
+    { key: 'seguimiento-contratos.html', label: 'Gestión de Contratos' },
+    { key: 'aprobacion-facturas.html', label: 'Aprobación de Facturas' },
+    { key: 'reportes.html', label: 'Reportes' },
+    { key: 'angel-ia.html', label: 'Angel IA' },
+    { key: 'angel-seguridad.html', label: 'Seguridad Angel IA' },
+    { key: 'configuraciones.html', label: 'Configuraciones' },
+    { key: 'papelera.html', label: 'Papelera' }
+  ];
+  const IMPLIED = {
+    'ver-solicitud.html': 'solicitud-salida-materiales.html',
+    'ver-compras.html': 'solicitud-de-compras.html'
+  };
+  function normalizeKey(raw) {
+    const s = String(raw || '').trim().replace(/^\//, '');
+    if (!s || s === '*') return s || '*';
+    return s;
+  }
+  function keysMatch(allowed, target) {
+    const a = normalizeKey(allowed);
+    const t = normalizeKey(target);
+    if (!a || !t) return false;
+    if (a === t) return true;
+    return a.replace(/\.html$/i, '') === t.replace(/\.html$/i, '');
+  }
+  function isAdminUser(user) {
+    if (!user) return false;
+    const rol = String(user.rol || '').toLowerCase();
+    return user.rol_id === 1 || rol.includes('admin');
+  }
+  function getAllowedPages(user) {
+    if (!user) return [];
+    let pages = user.paginas_permitidas;
+    try { if (typeof pages === 'string') pages = JSON.parse(pages); } catch (_) { /* ignore */ }
+    if (!Array.isArray(pages)) return ['*'];
+    return pages;
+  }
+  function canAccessPage(user, hrefOrKey) {
+    if (isAdminUser(user)) return true;
+    const pages = getAllowedPages(user);
+    if (pages.includes('*')) return true;
+    let key = normalizeKey(hrefOrKey);
+    if (pages.some((p) => keysMatch(p, key))) return true;
+    const parent = IMPLIED[key];
+    if (parent && pages.some((p) => keysMatch(p, parent))) return true;
+    return false;
+  }
+  function pageCheckboxId(key) {
+    return 'rp_' + String(key).replace(/[^a-zA-Z0-9_-]/g, '_');
+  }
+  window.PAGES_CATALOG = PAGES;
+  window.PagesCatalog = {
+    PAGES, IMPLIED, normalizeKey, keysMatch, isAdminUser, getAllowedPages, canAccessPage, pageCheckboxId
+  };
+})();
+
 /* Auth helpers shared across pages */
 const Auth = {
   getToken() {
@@ -90,33 +163,50 @@ function renderShell(activeHref, title, subtitle) {
   const user = Auth.require();
   if (!user) return null;
 
-  const links = [
-    { href: '/home.html', icon: 'fa-tachometer-alt', label: 'Menú Principal' },
-    { href: '/solicitud-salida-materiales.html', icon: 'fa-boxes', label: 'Solicitud de Salida Materiales' },
-    { href: '/salida-material-por-actividad.html', icon: 'fa-layer-group', label: 'Salida Material por Actividad' },
-    { href: '/portal-proveedores.html', icon: 'fa-dolly-flatbed', label: 'Portal Proveedores' },
-    { href: '/materiales-por-receta.html', icon: 'fa-ruler-combined', label: 'Materiales por Receta' },
-    { href: '/solicitud-de-compras.html', icon: 'fa-shopping-cart', label: 'Solicitud de Compras' },
-    { href: '/creacion-datos-maestros.html', icon: 'fa-database', label: 'Creación Datos Maestros' },
-    { href: '/tareas-operativas.html', icon: 'fa-tasks', label: 'Tareas Operativas' },
-    { href: '/solicitud-de-graficas.html', icon: 'fa-image', label: 'Solicitud de Gráficas' },
-    { href: '/serviciosgenerales.html', icon: 'fa-tools', label: 'Servicios Generales' },
-    { href: '/agenda-camion-pluma.html', icon: 'fa-truck-ramp-box', label: 'Agenda Camión Pluma' },
-    { href: '/checklist-flota.html', icon: 'fa-clipboard-check', label: 'Checklist Flota' },
-    { href: '/telecomunicaciones.html', icon: 'fa-satellite-dish', label: 'Telecomunicaciones' },
-    { href: '/seguimiento-contratos.html', icon: 'fa-file-contract', label: 'Gestión de Contratos' },
-    { href: '/aprobacion-facturas.html', icon: 'fa-file-invoice-dollar', label: 'Aprobación de Facturas' },
-    { href: '/reportes.html', icon: 'fa-chart-bar', label: 'Reportes' },
-    { href: '/angel-ia.html', icon: 'fa-robot', label: 'Angel IA' },
-    { href: '/angel-seguridad.html', icon: 'fa-shield-halved', label: 'Seguridad Angel IA' },
-    { href: '/configuraciones.html', icon: 'fa-cog', label: 'Configuraciones' },
-    { href: '/papelera.html', icon: 'fa-trash-alt', label: 'Papelera' }
-  ];
+  const catalog = window.PAGES_CATALOG || [];
+  const canAccess = window.PagesCatalog?.canAccessPage || (() => true);
+
+  const iconByKey = {
+    'home.html': 'fa-tachometer-alt',
+    'solicitud-salida-materiales.html': 'fa-boxes',
+    'salida-material-por-actividad.html': 'fa-layer-group',
+    'portal-proveedores.html': 'fa-dolly-flatbed',
+    'materiales-por-receta.html': 'fa-ruler-combined',
+    'solicitud-de-compras.html': 'fa-shopping-cart',
+    'creacion-datos-maestros.html': 'fa-database',
+    'tareas-operativas.html': 'fa-tasks',
+    'solicitud-de-graficas.html': 'fa-image',
+    'serviciosgenerales.html': 'fa-tools',
+    'agenda-camion-pluma.html': 'fa-truck-ramp-box',
+    'checklist-flota.html': 'fa-clipboard-check',
+    'telecomunicaciones.html': 'fa-satellite-dish',
+    'seguimiento-contratos.html': 'fa-file-contract',
+    'aprobacion-facturas.html': 'fa-file-invoice-dollar',
+    'reportes.html': 'fa-chart-bar',
+    'angel-ia.html': 'fa-robot',
+    'angel-seguridad.html': 'fa-shield-halved',
+    'configuraciones.html': 'fa-cog',
+    'papelera.html': 'fa-trash-alt'
+  };
+
+  const links = catalog
+    .map((p) => ({
+      href: '/' + p.key,
+      icon: iconByKey[p.key] || 'fa-circle',
+      label: p.label,
+      key: p.key
+    }))
+    .filter((l) => canAccess(user, l.key));
 
   const nav = links.map((l) => {
     const active = l.href === activeHref ? 'active' : '';
     return `<a class="${active}" href="${l.href}"><i class="fas ${l.icon}"></i> ${l.label}</a>`;
   }).join('');
+
+  if (!canAccess(user, activeHref.replace(/^\//, ''))) {
+    document.body.innerHTML = '<div class="alert alert-error" style="margin:2rem">No tienes permiso para acceder a esta página.</div>';
+    return null;
+  }
 
   const sub = subtitle ? `<p class="page-subtitle">${subtitle}</p>` : '';
 
