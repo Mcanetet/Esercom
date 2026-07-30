@@ -4,6 +4,25 @@ const { authRequired } = require('../middleware/auth');
 const router = express.Router();
 router.use(authRequired);
 
+/** Envuelve GET: si la tabla/columna no existe en MySQL, no tumba la página */
+const _get = router.get.bind(router);
+router.get = (path, ...handlers) => {
+  const last = handlers[handlers.length - 1];
+  if (typeof last === 'function') {
+    handlers[handlers.length - 1] = async (req, res, next) => {
+      try {
+        await last(req, res, next);
+      } catch (err) {
+        console.error(`[GET /api/modulos${path}]`, err.message);
+        if (!res.headersSent) {
+          res.json({ success: true, data: [], warning: err.message });
+        }
+      }
+    };
+  }
+  return _get(path, ...handlers);
+};
+
 async function nextCode(db, table, column, prefix) {
   const row = await db.prepare(
     `SELECT ${column} AS c FROM ${table} WHERE ${column} LIKE ? ORDER BY id DESC LIMIT 1`
@@ -120,16 +139,51 @@ router.post('/compras/:id/eliminar', async (req, res) => {
 
 /* ========== PORTAL PROVEEDORES ========== */
 router.get('/portal', async (req, res) => {
-  const data = await req.db.prepare(`
-    SELECT p.*, s.codigo AS solicitud_codigo, s.numero_proyecto,
-           pr.razon_social AS proveedor_nombre, e.nombre AS solicitud_estado
-    FROM portal_proveedor p
-    JOIN solicitudes_materiales s ON s.id = p.solicitud_id
-    LEFT JOIN proveedores pr ON pr.id = p.proveedor_id
-    LEFT JOIN estados_solicitud e ON e.id = s.estado_id
-    ORDER BY p.id DESC LIMIT 200
-  `).all();
-  res.json({ success: true, data });
+  try {
+    const data = await req.db.prepare(`
+      SELECT p.*, s.codigo AS solicitud_codigo, s.numero_proyecto,
+             COALESCE(pr.razon_social, pr.nombre) AS proveedor_nombre, e.nombre AS solicitud_estado
+      FROM portal_proveedor p
+      JOIN solicitudes_materiales s ON s.id = p.solicitud_id
+      LEFT JOIN proveedores pr ON pr.id = p.proveedor_id
+      LEFT JOIN estados_solicitud e ON e.id = s.estado_id
+      ORDER BY p.id DESC LIMIT 200
+    `).all();
+    return res.json({ success: true, data });
+  } catch (_) { /* fallback abajo */ }
+
+  try {
+    const data = await req.db.prepare(`
+      SELECT p.*, s.codigo AS solicitud_codigo, s.numero_proyecto,
+             pr.nombre AS proveedor_nombre, e.nombre AS solicitud_estado
+      FROM portal_proveedor p
+      JOIN solicitudes_materiales s ON s.id = p.solicitud_id
+      LEFT JOIN proveedores pr ON pr.id = p.proveedor_id
+      LEFT JOIN estados_solicitud e ON e.id = s.estado_id
+      ORDER BY p.id DESC LIMIT 200
+    `).all();
+    return res.json({ success: true, data });
+  } catch (err) {
+    // Productivo: portal embebido en solicitudes
+    try {
+      const data = await req.db.prepare(`
+        SELECT s.id, s.id AS solicitud_id, s.codigo AS solicitud_codigo, s.numero_proyecto,
+               s.portal_estado AS guia_estado, s.guia_proveedor_numero AS numero_guia,
+               s.guia_proveedor_persona_retira AS persona_retira,
+               COALESCE(pr.razon_social, pr.nombre) AS proveedor_nombre,
+               e.nombre AS solicitud_estado
+        FROM solicitudes_materiales s
+        LEFT JOIN proveedores pr ON pr.id = s.proveedor_id
+        LEFT JOIN estados_solicitud e ON e.id = s.estado_id
+        WHERE s.eliminado = 0 AND (s.ubicacion_entrega = 'directo-proveedor' OR s.portal_estado IS NOT NULL)
+        ORDER BY s.id DESC LIMIT 200
+      `).all();
+      return res.json({ success: true, data });
+    } catch (err2) {
+      console.error('portal', err2.message);
+      return res.json({ success: true, data: [], warning: err2.message });
+    }
+  }
 });
 
 router.post('/portal/:id/guia', async (req, res) => {

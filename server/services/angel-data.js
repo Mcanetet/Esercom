@@ -2,29 +2,37 @@
  * Contexto de datos de la empresa para Angel IA
  */
 async function getDashboardContext(db, company) {
-  const pendientesMat = (await db.prepare(`
+  async function countOrZero(sql) {
+    try {
+      return Number((await db.prepare(sql).get())?.c || 0);
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  const pendientesMat = await countOrZero(`
     SELECT COUNT(*) AS c FROM solicitudes_materiales
     WHERE eliminado = 0 AND estado_id IN (1,2,3,4,5)
-  `).get()).c;
+  `);
 
-  const pendientesCompras = (await db.prepare(`
+  const pendientesCompras = await countOrZero(`
     SELECT COUNT(*) AS c FROM solicitudes_compras
     WHERE eliminado = 0 AND estado IN ('Pendiente','En revisión')
-  `).get()).c;
+  `);
 
-  const ssggAbiertos = (await db.prepare(`
+  const ssggAbiertos = await countOrZero(`
     SELECT COUNT(*) AS c FROM servicios_generales
     WHERE eliminado = 0 AND estado IN ('Abierto','En proceso')
-  `).get()).c;
+  `);
 
-  const telecomPend = (await db.prepare(`
+  const telecomPend = await countOrZero(`
     SELECT COUNT(*) AS c FROM requerimientos_telecom
     WHERE eliminado = 0 AND estado IN ('Pendiente','Asignado')
-  `).get()).c;
+  `);
 
-  const facturasPend = (await db.prepare(`
+  const facturasPend = await countOrZero(`
     SELECT COUNT(*) AS c FROM aprobacion_facturas WHERE estado = 'Pendiente'
-  `).get()).c;
+  `);
 
   const stockBajo = [];
   try {

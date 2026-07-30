@@ -76,6 +76,208 @@ async function ensureMysqlColumns(db, table, columns) {
   }
 }
 
+async function ensureMysqlModuleTables(db) {
+  const ddl = [
+    `CREATE TABLE IF NOT EXISTS solicitudes_compras (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      numero_solicitud VARCHAR(64) NOT NULL,
+      solicitante_id INT NULL,
+      ceco_id INT NULL,
+      jefe_proyecto_id INT NULL,
+      fecha_requerida DATE NULL,
+      fecha_solicitud DATETIME DEFAULT CURRENT_TIMESTAMP,
+      estado VARCHAR(64) DEFAULT 'Pendiente',
+      observaciones TEXT NULL,
+      eliminado TINYINT NOT NULL DEFAULT 0
+    )`,
+    `CREATE TABLE IF NOT EXISTS solicitudes_compras_detalle (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      solicitud_id INT NOT NULL,
+      material_id INT NULL,
+      descripcion TEXT NULL,
+      cantidad DECIMAL(15,2) NOT NULL DEFAULT 1,
+      unidad VARCHAR(32) DEFAULT 'UN',
+      precio_estimado DECIMAL(15,2) DEFAULT 0,
+      observaciones TEXT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS portal_proveedor (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      solicitud_id INT NOT NULL,
+      proveedor_id INT NULL,
+      numero_guia VARCHAR(128) NULL,
+      fecha_entrega DATE NULL,
+      persona_retira VARCHAR(255) NULL,
+      guia_estado VARCHAR(64) DEFAULT 'Pendiente',
+      numero_factura VARCHAR(128) NULL,
+      monto_factura DECIMAL(15,2) NULL,
+      factura_estado VARCHAR(64) DEFAULT 'Pendiente',
+      observaciones TEXT NULL,
+      fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE TABLE IF NOT EXISTS materiales_receta_tipos (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      nombre VARCHAR(255) NOT NULL,
+      descripcion TEXT NULL,
+      activo TINYINT NOT NULL DEFAULT 1
+    )`,
+    `CREATE TABLE IF NOT EXISTS materiales_receta_insumos (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      tipo_id INT NOT NULL,
+      material_id INT NULL,
+      descripcion VARCHAR(255) NOT NULL,
+      cantidad DECIMAL(15,2) NOT NULL DEFAULT 1,
+      unidad VARCHAR(32) DEFAULT 'UN',
+      categoria VARCHAR(128) NULL,
+      activo TINYINT NOT NULL DEFAULT 1
+    )`,
+    `CREATE TABLE IF NOT EXISTS salidas_actividad (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      codigo VARCHAR(64) NOT NULL,
+      tipo_receta_id INT NULL,
+      ceco_id INT NULL,
+      solicitante_id INT NULL,
+      cantidad_obras INT DEFAULT 1,
+      numero_proyecto VARCHAR(128) NULL,
+      estado VARCHAR(64) DEFAULT 'Pendiente',
+      observaciones TEXT NULL,
+      fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE TABLE IF NOT EXISTS salidas_actividad_detalle (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      salida_id INT NOT NULL,
+      material_id INT NULL,
+      descripcion VARCHAR(255) NULL,
+      cantidad DECIMAL(15,2) DEFAULT 0,
+      unidad VARCHAR(32) DEFAULT 'UN'
+    )`,
+    `CREATE TABLE IF NOT EXISTS creacion_datos_maestros (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      codigo VARCHAR(64) NULL,
+      tipo VARCHAR(64) DEFAULT 'Material',
+      descripcion TEXT NOT NULL,
+      unidad_medida VARCHAR(32) DEFAULT 'UN',
+      estado VARCHAR(64) DEFAULT 'Pendiente',
+      solicitante_id INT NULL,
+      observaciones TEXT NULL,
+      eliminado TINYINT NOT NULL DEFAULT 0,
+      fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE TABLE IF NOT EXISTS tareas_operativas (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      area VARCHAR(128) NOT NULL,
+      fecha DATE NOT NULL,
+      hora_inicio VARCHAR(16) NULL,
+      hora_termino VARCHAR(16) NULL,
+      descripcion TEXT NOT NULL,
+      ubicacion VARCHAR(255) NULL,
+      ceco_id INT NULL,
+      responsable_id INT NULL,
+      eliminado TINYINT NOT NULL DEFAULT 0,
+      fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE TABLE IF NOT EXISTS solicitud_graficas (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      codigo VARCHAR(64) NOT NULL,
+      ceco_id INT NULL,
+      solicitante_id INT NOT NULL,
+      fecha_requerida DATE NULL,
+      observaciones TEXT NULL,
+      estado VARCHAR(64) DEFAULT 'Pendiente Aprobación',
+      eliminado TINYINT NOT NULL DEFAULT 0,
+      fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE TABLE IF NOT EXISTS servicios_generales (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      codigo VARCHAR(64) NULL,
+      titulo VARCHAR(255) NULL,
+      descripcion TEXT NULL,
+      solicitante_id INT NULL,
+      estado VARCHAR(64) DEFAULT 'Abierto',
+      eliminado TINYINT NOT NULL DEFAULT 0,
+      fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE TABLE IF NOT EXISTS agenda_camion_pluma_v2 (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      fecha DATE NOT NULL,
+      hora_inicio VARCHAR(16) NULL,
+      hora_termino VARCHAR(16) NULL,
+      tipo_servicio VARCHAR(128) NULL,
+      cliente VARCHAR(255) NULL,
+      chofer VARCHAR(255) NULL,
+      numero_proyecto VARCHAR(128) NULL,
+      origen VARCHAR(255) NULL,
+      destino VARCHAR(255) NULL,
+      estado VARCHAR(64) DEFAULT 'Programado',
+      creado_por INT NULL,
+      fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE TABLE IF NOT EXISTS checklist_flota (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      patente VARCHAR(32) NULL,
+      kilometraje INT NULL,
+      fecha DATE NULL,
+      tecnico_id INT NULL,
+      estado VARCHAR(64) DEFAULT 'OK',
+      observaciones TEXT NULL,
+      anulado TINYINT NOT NULL DEFAULT 0,
+      fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE TABLE IF NOT EXISTS requerimientos_telecom (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      codigo VARCHAR(64) NULL,
+      titulo VARCHAR(255) NULL,
+      estado VARCHAR(64) DEFAULT 'Pendiente',
+      solicitante_id INT NULL,
+      eliminado TINYINT NOT NULL DEFAULT 0,
+      fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE TABLE IF NOT EXISTS seguimiento_contratos (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      codigo VARCHAR(64) NULL,
+      titulo VARCHAR(255) NULL,
+      estado VARCHAR(64) DEFAULT 'Activo',
+      eliminado TINYINT NOT NULL DEFAULT 0,
+      fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE TABLE IF NOT EXISTS aprobacion_facturas_lote (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      codigo VARCHAR(64) NULL,
+      descripcion TEXT NULL,
+      creado_por INT NULL,
+      aprobador_id INT NULL,
+      estado VARCHAR(64) DEFAULT 'Pendiente',
+      fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE TABLE IF NOT EXISTS aprobacion_facturas (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      lote_id INT NULL,
+      numero_factura VARCHAR(128) NULL,
+      proveedor VARCHAR(255) NULL,
+      monto DECIMAL(15,2) DEFAULT 0,
+      estado VARCHAR(64) DEFAULT 'Pendiente'
+    )`,
+    `CREATE TABLE IF NOT EXISTS papelera (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      tipo VARCHAR(64) NOT NULL,
+      referencia_id INT NULL,
+      codigo VARCHAR(128) NULL,
+      titulo VARCHAR(255) NULL,
+      datos_json TEXT NULL,
+      eliminado_por INT NULL,
+      fecha_eliminacion DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`
+  ];
+
+  for (const sql of ddl) {
+    try {
+      await db.exec(sql);
+    } catch (err) {
+      console.warn('[mysql modules]', err.message);
+    }
+  }
+  console.log('[mysql] tablas de módulos verificadas/creadas');
+}
+
 async function migrateUserFlags(db) {
   if (db.driver === 'mysql') {
     await ensureMysqlColumns(db, 'usuarios', [
@@ -91,6 +293,7 @@ async function migrateUserFlags(db) {
       ['stock', 'DECIMAL(15,2) DEFAULT 0'],
       ['categoria', 'VARCHAR(255) NULL']
     ]);
+    await ensureMysqlModuleTables(db);
     // Angel IA (solo ESERCOM; no existe en PHP)
     try {
       await db.exec(`

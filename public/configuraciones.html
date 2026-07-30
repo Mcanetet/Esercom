@@ -6,7 +6,7 @@
   <title>Configuraciones - ESERCOM</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <link href="/css/app.css?v=resp2" rel="stylesheet">
+  <link href="/css/app.css?v=cfg1" rel="stylesheet">
 </head>
 <body>
   <script src="/js/auth.js?v=resp2"></script>
@@ -15,32 +15,26 @@
     const user = renderShell('/configuraciones.html', '<i class="fas fa-cog"></i> Configuraciones', 'Maestros y perfiles operativos');
 
     const FLAG_LABELS = [
-      { key: 'flag_checklist', label: 'Checklist Flota', hint: 'Puede registrar checklists de vehículos' },
-      { key: 'flag_flota', label: 'Encargado de Flota', hint: 'Aparece para tomar requerimientos de flota' },
-      { key: 'flag_ssgg', label: 'Servicios Generales', hint: 'Personal de mantención / SSGG' },
-      { key: 'flag_camion_pluma', label: 'Control Agenda Camión Pluma', hint: 'Puede modificar la agenda (perfil tipo Edith Gómez)' },
-      { key: 'flag_aprobador_salida', label: 'Aprobador Salida Materiales', hint: 'Puede aprobar/modificar salidas especiales' }
+      { key: 'flag_checklist', label: 'Checklist Flota', hint: 'Puede registrar checklists' },
+      { key: 'flag_flota', label: 'Encargado de Flota', hint: 'Toma requerimientos de flota' },
+      { key: 'flag_ssgg', label: 'Servicios Generales', hint: 'Personal de mantención' },
+      { key: 'flag_camion_pluma', label: 'Agenda Camión Pluma', hint: 'Puede modificar la agenda' },
+      { key: 'flag_aprobador_salida', label: 'Aprobador Salida', hint: 'Aprueba salidas especiales' }
     ];
 
+    let state = { users: [], mats: [], provs: [], cecos: [], roles: [], depts: [], resumen: {} };
+
     function flagsHtml(prefix, values = {}) {
-      return `<div class="user-flags">
-        ${FLAG_LABELS.map((f) => `
-          <label class="user-flag">
-            <input type="checkbox" id="${prefix}_${f.key}" ${values[f.key] ? 'checked' : ''}>
-            <span>
-              <strong>${f.label}</strong>
-              <small>${f.hint}</small>
-            </span>
-          </label>
-        `).join('')}
-      </div>`;
+      return `<div class="user-flags">${FLAG_LABELS.map((f) => `
+        <label class="user-flag">
+          <input type="checkbox" id="${prefix}_${f.key}" ${values[f.key] ? 'checked' : ''}>
+          <span><strong>${f.label}</strong><small>${f.hint}</small></span>
+        </label>`).join('')}</div>`;
     }
 
     function readFlags(prefix) {
       const out = {};
-      FLAG_LABELS.forEach((f) => {
-        out[f.key] = !!document.getElementById(`${prefix}_${f.key}`)?.checked;
-      });
+      FLAG_LABELS.forEach((f) => { out[f.key] = !!document.getElementById(`${prefix}_${f.key}`)?.checked; });
       return out;
     }
 
@@ -49,13 +43,27 @@
       if (u.flag_checklist) parts.push('<span class="chip">Checklist</span>');
       if (u.flag_flota) parts.push('<span class="chip chip-flota">Flota</span>');
       if (u.flag_ssgg) parts.push('<span class="chip chip-ssgg">SSGG</span>');
-      if (u.flag_camion_pluma) parts.push('<span class="chip chip-camion">Camión Pluma</span>');
-      if (u.flag_aprobador_salida) parts.push('<span class="chip chip-aprob">Aprob. Salida</span>');
-      return parts.join(' ') || '<span style="color:var(--muted)">—</span>';
+      if (u.flag_camion_pluma) parts.push('<span class="chip chip-camion">Camión</span>');
+      if (u.flag_aprobador_salida) parts.push('<span class="chip chip-aprob">Aprob.</span>');
+      return parts.join(' ') || '<span class="muted">—</span>';
+    }
+
+    function openModal(id) {
+      document.getElementById(id)?.classList.add('is-open');
+      document.body.classList.add('modal-open');
+    }
+    function closeModal(id) {
+      document.getElementById(id)?.classList.remove('is-open');
+      if (!document.querySelector('.cfg-modal.is-open')) document.body.classList.remove('modal-open');
+    }
+    function closeAllModals() {
+      document.querySelectorAll('.cfg-modal.is-open').forEach((m) => m.classList.remove('is-open'));
+      document.body.classList.remove('modal-open');
     }
 
     async function boot() {
       const content = document.getElementById('app-content');
+      content.innerHTML = '<div class="empty"><i class="fas fa-spinner fa-spin"></i> Cargando...</div>';
       try {
         const settled = await Promise.allSettled([
           Auth.api('/api/modulos/config/resumen'),
@@ -66,248 +74,348 @@
           Auth.api('/api/modulos/config/roles'),
           Auth.api('/api/modulos/config/departamentos')
         ]);
-        const labels = ['resumen', 'cecos', 'materiales', 'proveedores', 'usuarios', 'roles', 'departamentos'];
-        const failed = settled
-          .map((r, i) => (r.status === 'rejected' ? `${labels[i]}: ${r.reason?.message || r.reason}` : null))
-          .filter(Boolean);
-        if (failed.length === settled.length) {
-          throw new Error(failed.join(' · '));
-        }
-        const val = (i, fallback) => (settled[i].status === 'fulfilled' ? settled[i].value : fallback);
-        const resumen = val(0, { data: {} });
-        const cecos = val(1, []);
-        const mats = val(2, []);
-        const provs = val(3, []);
-        const users = val(4, []);
-        const roles = val(5, { data: [] });
-        const depts = val(6, { data: [] });
-        const s = resumen.data || {};
-        const warn = failed.length
-          ? `<div class="alert alert-error">Algunos datos no cargaron:<br>${failed.join('<br>')}</div>`
-          : '';
+        const val = (i, fb) => (settled[i].status === 'fulfilled' ? settled[i].value : fb);
+        state.resumen = val(0, { data: {} }).data || {};
+        state.cecos = val(1, []);
+        state.mats = val(2, []);
+        state.provs = val(3, []);
+        state.users = val(4, []);
+        state.roles = val(5, { data: [] }).data || [];
+        state.depts = val(6, { data: [] }).data || [];
+        const failed = settled.map((r, i) => r.status === 'rejected' ? r.reason?.message : null).filter(Boolean);
+        render(failed);
+      } catch (err) {
+        content.innerHTML = `<div class="alert alert-error">${err.message}</div>`;
+      }
+    }
 
-        content.innerHTML = `
-          <div id="flash"></div>
-          ${warn}
-          <div class="stats-grid">
-            <div class="stat-card"><div class="stat-label">Usuarios</div><div class="stat-value">${s.usuarios ?? '—'}</div></div>
-            <div class="stat-card"><div class="stat-label">CECOs</div><div class="stat-value">${s.cecos ?? '—'}</div></div>
-            <div class="stat-card"><div class="stat-label">Materiales</div><div class="stat-value">${s.materiales ?? '—'}</div></div>
-            <div class="stat-card"><div class="stat-label">Proveedores</div><div class="stat-value">${s.proveedores ?? '—'}</div></div>
+    function render(failed = []) {
+      const s = state.resumen;
+      const content = document.getElementById('app-content');
+      content.innerHTML = `
+        <div id="flash"></div>
+        ${failed.length ? `<div class="alert alert-error">Algunos datos no cargaron: ${failed.join(' · ')}</div>` : ''}
+
+        <div class="stats-grid">
+          <div class="stat-card"><div class="stat-label">Usuarios</div><div class="stat-value">${s.usuarios ?? state.users.length}</div></div>
+          <div class="stat-card"><div class="stat-label">CECOs</div><div class="stat-value">${s.cecos ?? state.cecos.length}</div></div>
+          <div class="stat-card"><div class="stat-label">Materiales</div><div class="stat-value">${s.materiales ?? state.mats.length}</div></div>
+          <div class="stat-card"><div class="stat-label">Proveedores</div><div class="stat-value">${s.proveedores ?? state.provs.length}</div></div>
+        </div>
+
+        <div class="cfg-section-title">Administrar maestros</div>
+        <div class="cfg-tiles">
+          <button type="button" class="cfg-tile" data-open="modalUsers">
+            <span class="cfg-tile-icon" style="background:#0284c7"><i class="fas fa-users"></i></span>
+            <span class="cfg-tile-body">
+              <strong>Usuarios y perfiles</strong>
+              <small>${state.users.length} registros · roles y atributos</small>
+            </span>
+            <i class="fas fa-chevron-right cfg-tile-arrow"></i>
+          </button>
+          <button type="button" class="cfg-tile" data-open="modalMats">
+            <span class="cfg-tile-icon" style="background:#0f766e"><i class="fas fa-boxes"></i></span>
+            <span class="cfg-tile-body">
+              <strong>Materiales</strong>
+              <small>${state.mats.length} ítems · alta rápida</small>
+            </span>
+            <i class="fas fa-chevron-right cfg-tile-arrow"></i>
+          </button>
+          <button type="button" class="cfg-tile" data-open="modalCecos">
+            <span class="cfg-tile-icon" style="background:#b45309"><i class="fas fa-sitemap"></i></span>
+            <span class="cfg-tile-body">
+              <strong>CECOs</strong>
+              <small>${state.cecos.length} centros de costo</small>
+            </span>
+            <i class="fas fa-chevron-right cfg-tile-arrow"></i>
+          </button>
+          <button type="button" class="cfg-tile" data-open="modalProvs">
+            <span class="cfg-tile-icon" style="background:#7c3aed"><i class="fas fa-truck"></i></span>
+            <span class="cfg-tile-body">
+              <strong>Proveedores</strong>
+              <small>${state.provs.length} fichas</small>
+            </span>
+            <i class="fas fa-chevron-right cfg-tile-arrow"></i>
+          </button>
+        </div>
+
+        <!-- Modal Usuarios -->
+        <div class="cfg-modal" id="modalUsers" role="dialog" aria-modal="true">
+          <div class="cfg-modal-backdrop" data-close></div>
+          <div class="cfg-modal-panel">
+            <header class="cfg-modal-head">
+              <div>
+                <h2>Usuarios y perfiles</h2>
+                <p>Crea usuarios o edita atributos operativos</p>
+              </div>
+              <button type="button" class="cfg-modal-x" data-close aria-label="Cerrar">&times;</button>
+            </header>
+            <div class="cfg-modal-body">
+              <div class="cfg-modal-actions">
+                <button type="button" class="btn btn-primary" id="btnNewUser"><i class="fas fa-user-plus"></i> Nuevo usuario</button>
+              </div>
+              <div class="table-wrap">
+                <table class="data">
+                  <thead><tr><th>Nombre</th><th>Email</th><th>Rol</th><th>Atributos</th><th></th></tr></thead>
+                  <tbody>
+                    ${state.users.map((u) => `
+                      <tr>
+                        <td><strong>${u.nombre} ${u.apellido}</strong><div class="muted">${u.cargo || ''}</div></td>
+                        <td>${u.email}</td>
+                        <td>${u.rol || '—'}</td>
+                        <td>${chips(u)}</td>
+                        <td><button type="button" class="btn btn-outline btn-sm" data-edit-user='${encodeURIComponent(JSON.stringify(u))}'>Editar</button></td>
+                      </tr>`).join('') || UI.emptyRow(5, 'Sin usuarios')}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
+        </div>
 
-          <div class="card">
-            <div class="card-header"><h2>Usuarios y perfiles operativos</h2></div>
-            <div class="card-body">
+        <!-- Modal crear/editar usuario -->
+        <div class="cfg-modal" id="modalUserForm" role="dialog" aria-modal="true">
+          <div class="cfg-modal-backdrop" data-close-userform></div>
+          <div class="cfg-modal-panel cfg-modal-sm">
+            <header class="cfg-modal-head">
+              <div><h2 id="userFormTitle">Nuevo usuario</h2><p>Datos y visibilidad en módulos</p></div>
+              <button type="button" class="cfg-modal-x" data-close-userform>&times;</button>
+            </header>
+            <div class="cfg-modal-body">
               <form id="userForm">
-                <div class="form-row cols-3">
+                <input type="hidden" id="uId">
+                <div class="form-row cols-2">
                   <div class="form-group"><label>Nombre *</label><input id="uNombre" required></div>
                   <div class="form-group"><label>Apellido *</label><input id="uApellido" required></div>
-                  <div class="form-group"><label>Email *</label><input type="email" id="uEmail" required></div>
                 </div>
-                <div class="form-row cols-3">
-                  <div class="form-group"><label>Password *</label><input type="password" id="uPass" required></div>
-                  <div class="form-group"><label>Cargo</label><input id="uCargo" placeholder="Ej: Encargado de Flota"></div>
+                <div class="form-row cols-2">
+                  <div class="form-group"><label>Email *</label><input type="email" id="uEmail" required></div>
+                  <div class="form-group"><label id="uPassLabel">Password *</label><input type="password" id="uPass"></div>
+                </div>
+                <div class="form-row cols-2">
+                  <div class="form-group"><label>Cargo</label><input id="uCargo"></div>
                   <div class="form-group"><label>Teléfono</label><input id="uTelefono"></div>
                 </div>
-                <div class="form-row">
-                  <div class="form-group"><label>Rol</label><select id="uRol">${UI.optionList(roles.data,'id',x=>x.nombre)}</select></div>
+                <div class="form-row cols-2">
+                  <div class="form-group"><label>Rol</label><select id="uRol">${UI.optionList(state.roles,'id',x=>x.nombre)}</select></div>
                   <div class="form-group"><label>Departamento</label>
-                    <select id="uDept"><option value="">—</option>${UI.optionList(depts.data,'id',x=>x.nombre)}</select>
-                  </div>
-                </div>
-                <h3 class="flags-title">Atributos / visibilidad en módulos</h3>
-                <p class="flags-help">Marca quién aparece para checklist, requerimientos de flota, SSGG, control de agenda camión pluma y aprobación de salidas.</p>
-                ${flagsHtml('new')}
-                <button class="btn btn-primary" type="submit" style="margin-top:1rem"><i class="fas fa-user-plus"></i> Crear usuario</button>
-              </form>
-            </div>
-          </div>
-
-          <div class="card">
-            <div class="card-header"><h2>Usuarios (${users.length})</h2></div>
-            <div class="card-body table-wrap">
-              <table class="data">
-                <thead>
-                  <tr>
-                    <th>Nombre</th><th>Email</th><th>Cargo</th><th>Rol</th><th>Atributos</th><th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${users.map((u) => `
-                    <tr>
-                      <td><strong>${u.nombre} ${u.apellido}</strong></td>
-                      <td>${u.email}</td>
-                      <td>${u.cargo || '—'}</td>
-                      <td>${u.rol || '—'}</td>
-                      <td>${chips(u)}</td>
-                      <td><button type="button" class="btn btn-outline btn-sm" data-edit='${JSON.stringify(u).replace(/'/g, '&#39;')}'>Editar</button></td>
-                    </tr>
-                  `).join('')}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div class="card" id="editCard" hidden>
-            <div class="card-header"><h2>Editar usuario</h2><button type="button" class="btn btn-secondary btn-sm" id="btnCloseEdit">Cerrar</button></div>
-            <div class="card-body">
-              <form id="editForm">
-                <input type="hidden" id="eId">
-                <div class="form-row cols-3">
-                  <div class="form-group"><label>Nombre</label><input id="eNombre" required></div>
-                  <div class="form-group"><label>Apellido</label><input id="eApellido" required></div>
-                  <div class="form-group"><label>Email</label><input type="email" id="eEmail" required></div>
-                </div>
-                <div class="form-row cols-3">
-                  <div class="form-group"><label>Nueva password (opcional)</label><input type="password" id="ePass"></div>
-                  <div class="form-group"><label>Cargo</label><input id="eCargo"></div>
-                  <div class="form-group"><label>Teléfono</label><input id="eTelefono"></div>
-                </div>
-                <div class="form-row">
-                  <div class="form-group"><label>Rol</label><select id="eRol">${UI.optionList(roles.data,'id',x=>x.nombre)}</select></div>
-                  <div class="form-group"><label>Departamento</label>
-                    <select id="eDept"><option value="">—</option>${UI.optionList(depts.data,'id',x=>x.nombre)}</select>
+                    <select id="uDept"><option value="">—</option>${UI.optionList(state.depts,'id',x=>x.nombre)}</select>
                   </div>
                 </div>
                 <h3 class="flags-title">Atributos operativos</h3>
-                ${flagsHtml('edit')}
-                <button class="btn btn-primary" type="submit" style="margin-top:1rem">Guardar cambios</button>
+                ${flagsHtml('uf')}
+                <div class="cfg-modal-footer">
+                  <button type="button" class="btn btn-secondary" data-close-userform>Cancelar</button>
+                  <button type="submit" class="btn btn-primary">Guardar</button>
+                </div>
               </form>
             </div>
           </div>
+        </div>
 
-          <div class="card"><div class="card-header"><h2>Nuevo material</h2></div><div class="card-body">
-            <form id="matForm" class="toolbar">
-              <input id="mCodigo" placeholder="Código" required>
-              <input id="mNombre" placeholder="Nombre" required>
-              <input id="mUnidad" value="UN" style="width:70px">
-              <input type="number" id="mPrecio" placeholder="Precio" style="width:100px">
-              <input type="number" id="mStock" placeholder="Stock" style="width:90px">
-              <button class="btn btn-primary" type="submit">Guardar</button>
-            </form>
-          </div></div>
-          <div class="card"><div class="card-header"><h2>Nuevo CECO</h2></div><div class="card-body">
-            <form id="cecoForm" class="toolbar">
-              <input id="cCodigo" placeholder="Código" required>
-              <input id="cNombre" placeholder="Nombre" required>
-              <button class="btn btn-primary" type="submit">Guardar</button>
-            </form>
-          </div></div>
-          <div class="card"><div class="card-header"><h2>Nuevo proveedor</h2></div><div class="card-body">
-            <form id="provForm" class="toolbar">
-              <input id="pRazon" placeholder="Razón social" required>
-              <input id="pRut" placeholder="RUT" required>
-              <input id="pEmail" placeholder="Email">
-              <button class="btn btn-primary" type="submit">Guardar</button>
-            </form>
-          </div></div>
-        `;
+        <!-- Modal Materiales -->
+        <div class="cfg-modal" id="modalMats" role="dialog">
+          <div class="cfg-modal-backdrop" data-close></div>
+          <div class="cfg-modal-panel">
+            <header class="cfg-modal-head">
+              <div><h2>Materiales</h2><p>Alta rápida de ítems</p></div>
+              <button type="button" class="cfg-modal-x" data-close>&times;</button>
+            </header>
+            <div class="cfg-modal-body">
+              <form id="matForm" class="cfg-inline-form">
+                <input id="mCodigo" placeholder="Código *" required>
+                <input id="mNombre" placeholder="Nombre *" required>
+                <input id="mUnidad" value="UN" style="max-width:70px">
+                <input type="number" id="mPrecio" placeholder="Precio" style="max-width:100px">
+                <input type="number" id="mStock" placeholder="Stock" style="max-width:90px">
+                <button class="btn btn-primary" type="submit">Agregar</button>
+              </form>
+              <div class="table-wrap" style="margin-top:1rem;max-height:360px;overflow:auto">
+                <table class="data">
+                  <thead><tr><th>Código</th><th>Nombre</th><th>Unidad</th></tr></thead>
+                  <tbody>
+                    ${state.mats.slice(0, 80).map((m) => `<tr><td>${m.codigo}</td><td>${m.nombre}</td><td>${m.unidad || 'UN'}</td></tr>`).join('') || UI.emptyRow(3)}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
 
-        userForm.onsubmit = async (e) => {
-          e.preventDefault();
-          try {
-            await Auth.api('/api/modulos/config/usuarios', {
-              method: 'POST',
-              body: JSON.stringify({
-                nombre: uNombre.value,
-                apellido: uApellido.value,
-                email: uEmail.value,
-                password: uPass.value,
-                cargo: uCargo.value || null,
-                telefono: uTelefono.value || null,
-                rol_id: Number(uRol.value),
-                departamento_id: uDept.value ? Number(uDept.value) : null,
-                ...readFlags('new')
-              })
-            });
-            UI.flash('Usuario creado');
-            boot();
-          } catch (err) { UI.flash(err.message, true); }
+        <!-- Modal CECOs -->
+        <div class="cfg-modal" id="modalCecos" role="dialog">
+          <div class="cfg-modal-backdrop" data-close></div>
+          <div class="cfg-modal-panel cfg-modal-sm">
+            <header class="cfg-modal-head">
+              <div><h2>CECOs</h2><p>Centros de costo</p></div>
+              <button type="button" class="cfg-modal-x" data-close>&times;</button>
+            </header>
+            <div class="cfg-modal-body">
+              <form id="cecoForm" class="cfg-inline-form">
+                <input id="cCodigo" placeholder="Código *" required>
+                <input id="cNombre" placeholder="Nombre *" required>
+                <button class="btn btn-primary" type="submit">Agregar</button>
+              </form>
+              <div class="table-wrap" style="margin-top:1rem;max-height:360px;overflow:auto">
+                <table class="data">
+                  <thead><tr><th>Código</th><th>Nombre</th></tr></thead>
+                  <tbody>
+                    ${state.cecos.map((c) => `<tr><td>${c.codigo}</td><td>${c.nombre}</td></tr>`).join('') || UI.emptyRow(2)}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Modal Proveedores -->
+        <div class="cfg-modal" id="modalProvs" role="dialog">
+          <div class="cfg-modal-backdrop" data-close></div>
+          <div class="cfg-modal-panel cfg-modal-sm">
+            <header class="cfg-modal-head">
+              <div><h2>Proveedores</h2><p>Fichas de proveedores</p></div>
+              <button type="button" class="cfg-modal-x" data-close>&times;</button>
+            </header>
+            <div class="cfg-modal-body">
+              <form id="provForm" class="cfg-inline-form">
+                <input id="pRazon" placeholder="Razón social *" required>
+                <input id="pRut" placeholder="RUT *" required>
+                <input id="pEmail" placeholder="Email">
+                <button class="btn btn-primary" type="submit">Agregar</button>
+              </form>
+              <div class="table-wrap" style="margin-top:1rem;max-height:360px;overflow:auto">
+                <table class="data">
+                  <thead><tr><th>Nombre</th><th>RUT</th><th>Email</th></tr></thead>
+                  <tbody>
+                    ${state.provs.map((p) => `<tr><td>${p.razon_social || p.nombre || ''}</td><td>${p.rut || ''}</td><td>${p.email || '—'}</td></tr>`).join('') || UI.emptyRow(3)}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+
+      bindUi();
+    }
+
+    function resetUserForm(editUser) {
+      uId.value = editUser ? editUser.id : '';
+      userFormTitle.textContent = editUser ? 'Editar usuario' : 'Nuevo usuario';
+      uPassLabel.textContent = editUser ? 'Nueva password (opcional)' : 'Password *';
+      uPass.required = !editUser;
+      uNombre.value = editUser?.nombre || '';
+      uApellido.value = editUser?.apellido || '';
+      uEmail.value = editUser?.email || '';
+      uPass.value = '';
+      uCargo.value = editUser?.cargo || '';
+      uTelefono.value = editUser?.telefono || '';
+      uRol.value = String(editUser?.rol_id || state.roles[0]?.id || '');
+      uDept.value = editUser?.departamento_id ? String(editUser.departamento_id) : '';
+      FLAG_LABELS.forEach((f) => {
+        const el = document.getElementById('uf_' + f.key);
+        if (el) el.checked = !!(editUser && editUser[f.key]);
+      });
+    }
+
+    function bindUi() {
+      document.querySelectorAll('[data-open]').forEach((btn) => {
+        btn.onclick = () => openModal(btn.getAttribute('data-open'));
+      });
+      document.querySelectorAll('[data-close]').forEach((el) => {
+        el.onclick = () => closeAllModals();
+      });
+      document.querySelectorAll('[data-close-userform]').forEach((el) => {
+        el.onclick = () => {
+          closeModal('modalUserForm');
+          openModal('modalUsers');
         };
+      });
 
-        document.querySelectorAll('[data-edit]').forEach((btn) => {
-          btn.onclick = () => {
-            const u = JSON.parse(btn.getAttribute('data-edit'));
-            editCard.hidden = false;
-            eId.value = u.id;
-            eNombre.value = u.nombre;
-            eApellido.value = u.apellido;
-            eEmail.value = u.email;
-            eCargo.value = u.cargo || '';
-            eTelefono.value = u.telefono || '';
-            eRol.value = String(u.rol_id || '');
-            eDept.value = u.departamento_id ? String(u.departamento_id) : '';
-            ePass.value = '';
-            FLAG_LABELS.forEach((f) => {
-              const el = document.getElementById('edit_' + f.key);
-              if (el) el.checked = !!u[f.key];
-            });
-            editCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      btnNewUser.onclick = () => {
+        resetUserForm(null);
+        openModal('modalUserForm');
+      };
+
+      document.querySelectorAll('[data-edit-user]').forEach((btn) => {
+        btn.onclick = () => {
+          const u = JSON.parse(decodeURIComponent(btn.getAttribute('data-edit-user')));
+          resetUserForm(u);
+          openModal('modalUserForm');
+        };
+      });
+
+      userForm.onsubmit = async (e) => {
+        e.preventDefault();
+        try {
+          const id = uId.value;
+          const payload = {
+            nombre: uNombre.value,
+            apellido: uApellido.value,
+            email: uEmail.value,
+            cargo: uCargo.value || null,
+            telefono: uTelefono.value || null,
+            rol_id: Number(uRol.value),
+            departamento_id: uDept.value ? Number(uDept.value) : null,
+            ...readFlags('uf')
           };
-        });
-
-        btnCloseEdit.onclick = () => { editCard.hidden = true; };
-
-        editForm.onsubmit = async (e) => {
-          e.preventDefault();
-          try {
-            const payload = {
-              nombre: eNombre.value,
-              apellido: eApellido.value,
-              email: eEmail.value,
-              cargo: eCargo.value || null,
-              telefono: eTelefono.value || null,
-              rol_id: Number(eRol.value),
-              departamento_id: eDept.value ? Number(eDept.value) : null,
-              ...readFlags('edit')
-            };
-            if (ePass.value.trim()) payload.password = ePass.value.trim();
-            await Auth.api('/api/modulos/config/usuarios/' + eId.value, {
-              method: 'POST',
-              body: JSON.stringify(payload)
-            });
+          if (!id) {
+            if (!uPass.value) throw new Error('Password requerida');
+            payload.password = uPass.value;
+            await Auth.api('/api/modulos/config/usuarios', { method: 'POST', body: JSON.stringify(payload) });
+            UI.flash('Usuario creado');
+          } else {
+            if (uPass.value.trim()) payload.password = uPass.value.trim();
+            await Auth.api('/api/modulos/config/usuarios/' + id, { method: 'POST', body: JSON.stringify(payload) });
             UI.flash('Usuario actualizado');
-            boot();
-          } catch (err) { UI.flash(err.message, true); }
-        };
+          }
+          closeAllModals();
+          boot();
+        } catch (err) { UI.flash(err.message, true); }
+      };
 
-        matForm.onsubmit = async (e) => {
-          e.preventDefault();
-          try {
-            await Auth.api('/api/modulos/config/materiales', {
-              method: 'POST',
-              body: JSON.stringify({
-                codigo: mCodigo.value, nombre: mNombre.value, unidad: mUnidad.value,
-                precio: Number(mPrecio.value) || 0, stock: Number(mStock.value) || 0
-              })
-            });
-            UI.flash('Material creado'); boot();
-          } catch (err) { UI.flash(err.message, true); }
-        };
-        cecoForm.onsubmit = async (e) => {
-          e.preventDefault();
-          try {
-            await Auth.api('/api/modulos/config/cecos', {
-              method: 'POST',
-              body: JSON.stringify({ codigo: cCodigo.value, nombre: cNombre.value })
-            });
-            UI.flash('CECO creado'); boot();
-          } catch (err) { UI.flash(err.message, true); }
-        };
-        provForm.onsubmit = async (e) => {
-          e.preventDefault();
-          try {
-            await Auth.api('/api/modulos/config/proveedores', {
-              method: 'POST',
-              body: JSON.stringify({ razon_social: pRazon.value, rut: pRut.value, email: pEmail.value || null })
-            });
-            UI.flash('Proveedor creado'); boot();
-          } catch (err) { UI.flash(err.message, true); }
-        };
-      } catch (e) {
-        content.innerHTML = `<div class="alert alert-error">${e.message}</div>`;
-      }
+      matForm.onsubmit = async (e) => {
+        e.preventDefault();
+        try {
+          await Auth.api('/api/modulos/config/materiales', {
+            method: 'POST',
+            body: JSON.stringify({
+              codigo: mCodigo.value, nombre: mNombre.value, unidad: mUnidad.value || 'UN',
+              precio: Number(mPrecio.value) || 0, stock: Number(mStock.value) || 0
+            })
+          });
+          UI.flash('Material creado');
+          boot().then(() => openModal('modalMats'));
+        } catch (err) { UI.flash(err.message, true); }
+      };
+
+      cecoForm.onsubmit = async (e) => {
+        e.preventDefault();
+        try {
+          await Auth.api('/api/modulos/config/cecos', {
+            method: 'POST',
+            body: JSON.stringify({ codigo: cCodigo.value, nombre: cNombre.value })
+          });
+          UI.flash('CECO creado');
+          boot().then(() => openModal('modalCecos'));
+        } catch (err) { UI.flash(err.message, true); }
+      };
+
+      provForm.onsubmit = async (e) => {
+        e.preventDefault();
+        try {
+          await Auth.api('/api/modulos/config/proveedores', {
+            method: 'POST',
+            body: JSON.stringify({ razon_social: pRazon.value, rut: pRut.value, email: pEmail.value || null })
+          });
+          UI.flash('Proveedor creado');
+          boot().then(() => openModal('modalProvs'));
+        } catch (err) { UI.flash(err.message, true); }
+      };
+
+      document.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Escape') closeAllModals();
+      }, { once: true });
     }
 
     if (user) boot();
