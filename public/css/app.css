@@ -1554,8 +1554,7 @@ body.modal-open { overflow: hidden; }
   gap: 0.45rem;
   margin-bottom: 0.55rem;
 }
-.cfg-modal-stack.is-open { z-index: 1200; }
-.cfg-modal-stack .cfg-modal-backdrop { background: rgba(15, 23, 42, 0.55); }
+#modalRoleForm.is-open { z-index: 1300; }
 .role-pages-grid {
   display: grid;
   grid-template-columns: 1fr;

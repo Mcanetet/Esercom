@@ -6,7 +6,7 @@
   <title>Configuraciones - ESERCOM</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <link href="/css/app.css?v=cfg6" rel="stylesheet">
+  <link href="/css/app.css?v=cfg7" rel="stylesheet">
 </head>
 <body>
   <script src="/js/auth.js?v=pages2"></script>
@@ -127,8 +127,20 @@
     }
 
     function openRoleForm(editRole) {
+      closeModal('modalRoles');
       resetRoleForm(editRole);
+      const host = document.getElementById('roleFormPagesHost');
+      if (host) {
+        host.innerHTML = renderRolePagesCheckboxes();
+        bindRolePagesUi();
+        setRolePages(editRole?.paginas_permitidas || ['home.html', 'solicitud-salida-materiales.html']);
+      }
       openModal('modalRoleForm');
+    }
+
+    function closeRoleForm() {
+      closeModal('modalRoleForm');
+      openModal('modalRoles');
     }
 
     function resetRoleForm(editRole) {
@@ -136,7 +148,6 @@
       roleFormTitle.textContent = editRole ? `Editar rol: ${editRole.nombre}` : 'Nuevo rol';
       rNombre.value = editRole?.nombre || '';
       rDesc.value = editRole?.descripcion || '';
-      setRolePages(editRole?.paginas_permitidas || ['home.html', 'solicitud-salida-materiales.html']);
       btnRoleSave.textContent = editRole ? 'Guardar cambios' : 'Crear rol';
     }
 
@@ -187,6 +198,7 @@
     }
 
     function openModal(id) {
+      if (id === 'modalRoles') closeModal('modalRoleForm');
       document.getElementById(id)?.classList.add('is-open');
       document.body.classList.add('modal-open');
     }
@@ -347,27 +359,19 @@
               <div class="cfg-modal-actions">
                 <button type="button" class="btn btn-primary" id="btnNewRole"><i class="fas fa-plus"></i> Nuevo rol</button>
               </div>
-              <div class="table-wrap" style="max-height:420px;overflow:auto">
+              <div class="table-wrap" style="max-height:480px;overflow:auto">
                 <table class="data">
-                  <thead><tr><th>Rol</th><th>Descripción</th><th>Páginas</th><th></th></tr></thead>
+                  <thead><tr><th>Rol</th><th>Descripción</th><th></th></tr></thead>
                   <tbody>
-                    ${state.roles.map((r) => {
-                      let pages = r.paginas_permitidas;
-                      try { if (typeof pages === 'string') pages = JSON.parse(pages); } catch (_) {}
-                      const pagesLabel = Array.isArray(pages) && pages.includes('*')
-                        ? 'Todas'
-                        : (Array.isArray(pages) ? pages.length + ' páginas' : '—');
-                      return `
+                    ${state.roles.map((r) => `
                       <tr>
                         <td><strong>${r.nombre}</strong></td>
                         <td>${r.descripcion || '—'}</td>
-                        <td><span class="chip">${pagesLabel}</span></td>
                         <td class="cfg-row-actions">
                           <button type="button" class="btn btn-outline btn-sm" data-edit-role='${encodeURIComponent(JSON.stringify(r))}'>Editar</button>
                           <button type="button" class="btn btn-danger btn-sm" data-del-role="${r.id}" data-del-name="${String(r.nombre || '').replace(/"/g, '')}">Eliminar</button>
                         </td>
-                      </tr>`;
-                    }).join('') || UI.emptyRow(4, 'Sin roles')}
+                      </tr>`).join('') || UI.emptyRow(3, 'Sin roles')}
                   </tbody>
                 </table>
               </div>
@@ -375,14 +379,14 @@
           </div>
         </div>
 
-        <!-- Modal crear/editar rol -->
-        <div class="cfg-modal cfg-modal-stack" id="modalRoleForm" role="dialog" aria-modal="true">
+        <!-- Modal crear/editar rol (solo se abre al pulsar Nuevo / Editar) -->
+        <div class="cfg-modal" id="modalRoleForm" role="dialog" aria-modal="true">
           <div class="cfg-modal-backdrop" data-close-roleform></div>
           <div class="cfg-modal-panel">
             <header class="cfg-modal-head">
               <div>
                 <h2 id="roleFormTitle">Nuevo rol</h2>
-                <p>Nombre, descripción y páginas permitidas</p>
+                <p>Nombre del rol y páginas permitidas</p>
               </div>
               <button type="button" class="cfg-modal-x" data-close-roleform aria-label="Cerrar">&times;</button>
             </header>
@@ -390,16 +394,16 @@
               <form id="roleForm" class="cfg-inline-form" style="flex-direction:column;align-items:stretch">
                 <input type="hidden" id="rId">
                 <div class="form-row cols-2">
-                  <div class="form-group"><label>Nombre *</label><input id="rNombre" required placeholder="Ej: Bodeguero"></div>
+                  <div class="form-group"><label>Nombre del rol *</label><input id="rNombre" required placeholder="Ej: Jefe de Proyecto"></div>
                   <div class="form-group"><label>Descripción</label><input id="rDesc" placeholder="Opcional"></div>
                 </div>
                 <div class="form-group">
                   <label>Páginas permitidas</label>
-                  ${renderRolePagesCheckboxes()}
+                  <div id="roleFormPagesHost"></div>
                 </div>
                 <div class="cfg-modal-footer">
-                  <button type="button" class="btn btn-secondary" data-close-roleform>Cancelar</button>
-                  <button type="submit" class="btn btn-primary" id="btnRoleSave">Crear rol</button>
+                  <button type="button" class="btn btn-secondary" data-close-roleform>Volver a roles</button>
+                  <button type="submit" class="btn btn-primary" id="btnRoleSave">Guardar</button>
                 </div>
               </form>
             </div>
@@ -582,10 +586,7 @@
         };
       });
       document.querySelectorAll('[data-close-roleform]').forEach((el) => {
-        el.onclick = () => {
-          closeModal('modalRoleForm');
-          openModal('modalRoles');
-        };
+        el.onclick = () => closeRoleForm();
       });
 
       btnNewRole.onclick = () => openRoleForm(null);
@@ -649,8 +650,6 @@
         };
       });
 
-      bindRolePagesUi();
-
       document.querySelectorAll('[data-edit-role]').forEach((btn) => {
         btn.onclick = () => {
           const r = JSON.parse(decodeURIComponent(btn.getAttribute('data-edit-role')));
@@ -687,7 +686,7 @@
             await Auth.api('/api/modulos/config/roles', { method: 'POST', body: JSON.stringify(payload) });
             UI.flash('Rol creado');
           }
-          closeModal('modalRoleForm');
+          closeRoleForm();
           boot().then(() => openModal('modalRoles'));
         } catch (err) { UI.flash(err.message, true); }
       };
