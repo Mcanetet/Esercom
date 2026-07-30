@@ -112,7 +112,9 @@ document.addEventListener('DOMContentLoaded', () => {
       localStorage.setItem('user', JSON.stringify(result.user));
       localStorage.setItem('auth_token', result.token);
       showAlert('Inicio de sesión exitoso. Redirigiendo...', 'success');
-      setTimeout(() => window.location.replace('/home.html'), 800);
+      // Misma origen (evita www vs no-www que borra la sesión de localStorage)
+      const home = `${window.location.origin}/home.html`;
+      setTimeout(() => window.location.replace(home), 500);
     } catch (err) {
       showAlert('No se pudo conectar con el servidor');
     } finally {

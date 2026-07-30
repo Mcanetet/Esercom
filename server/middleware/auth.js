@@ -2,6 +2,47 @@ const jwt = require('jsonwebtoken');
 const config = require('../config');
 const { getDb } = require('../db/tenants');
 
+async function loadAuthUser(db, userId) {
+  const withFlags = `
+    SELECT u.id, u.nombre, u.apellido, u.email, u.cargo, u.rol_id, u.departamento_id, u.activo,
+           u.flag_checklist, u.flag_flota, u.flag_ssgg, u.flag_camion_pluma, u.flag_aprobador_salida,
+           r.nombre AS rol, r.paginas_permitidas, d.nombre AS departamento
+    FROM usuarios u
+    LEFT JOIN roles r ON r.id = u.rol_id
+    LEFT JOIN departamentos d ON d.id = u.departamento_id
+    WHERE u.id = ? AND (u.activo = 1 OR u.activo IS NULL)
+  `;
+  const withoutFlags = `
+    SELECT u.id, u.nombre, u.apellido, u.email, u.cargo, u.rol_id, u.departamento_id, u.activo,
+           0 AS flag_checklist, 0 AS flag_flota, 0 AS flag_ssgg, 0 AS flag_camion_pluma, 0 AS flag_aprobador_salida,
+           r.nombre AS rol, r.paginas_permitidas, d.nombre AS departamento
+    FROM usuarios u
+    LEFT JOIN roles r ON r.id = u.rol_id
+    LEFT JOIN departamentos d ON d.id = u.departamento_id
+    WHERE u.id = ? AND (u.activo = 1 OR u.activo IS NULL)
+  `;
+  const bare = `
+    SELECT u.id, u.nombre, u.apellido, u.email, u.cargo, u.rol_id, u.departamento_id, u.activo,
+           0 AS flag_checklist, 0 AS flag_flota, 0 AS flag_ssgg, 0 AS flag_camion_pluma, 0 AS flag_aprobador_salida,
+           r.nombre AS rol, r.permisos AS paginas_permitidas, NULL AS departamento
+    FROM usuarios u
+    LEFT JOIN roles r ON r.id = u.rol_id
+    WHERE u.id = ?
+  `;
+
+  try {
+    return await db.prepare(withFlags).get(userId);
+  } catch (err) {
+    console.warn('[auth] withFlags:', err.message);
+    try {
+      return await db.prepare(withoutFlags).get(userId);
+    } catch (err2) {
+      console.warn('[auth] withoutFlags:', err2.message);
+      return db.prepare(bare).get(userId);
+    }
+  }
+}
+
 async function authRequired(req, res, next) {
   const header = req.headers.authorization || '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : null;
@@ -18,15 +59,7 @@ async function authRequired(req, res, next) {
     }
 
     const db = getDb(payload.empresa);
-    const user = await db.prepare(`
-      SELECT u.id, u.nombre, u.apellido, u.email, u.cargo, u.rol_id, u.departamento_id, u.activo,
-             u.flag_checklist, u.flag_flota, u.flag_ssgg, u.flag_camion_pluma, u.flag_aprobador_salida,
-             r.nombre AS rol, r.paginas_permitidas, d.nombre AS departamento
-      FROM usuarios u
-      LEFT JOIN roles r ON r.id = u.rol_id
-      LEFT JOIN departamentos d ON d.id = u.departamento_id
-      WHERE u.id = ? AND u.activo = 1
-    `).get(payload.userId);
+    const user = await loadAuthUser(db, payload.userId);
 
     if (!user) {
       return res.status(401).json({ success: false, message: 'Usuario no válido' });
@@ -34,7 +67,11 @@ async function authRequired(req, res, next) {
 
     let paginas = ['*'];
     try {
-      paginas = JSON.parse(user.paginas_permitidas || '["*"]');
+      const raw = user.paginas_permitidas;
+      if (raw == null || raw === '') paginas = ['*'];
+      else if (typeof raw === 'object') paginas = raw;
+      else paginas = JSON.parse(raw);
+      if (!Array.isArray(paginas)) paginas = ['*'];
     } catch (_) { /* keep default */ }
 
     req.auth = {
@@ -66,7 +103,14 @@ async function authRequired(req, res, next) {
     req.db = db;
     next();
   } catch (err) {
-    return res.status(401).json({ success: false, message: 'Sesión expirada o inválida' });
+    if (err.name === 'JsonWebTokenError' || err.name === 'TokenExpiredError') {
+      return res.status(401).json({ success: false, message: 'Sesión expirada o inválida' });
+    }
+    console.error('authRequired', err);
+    return res.status(500).json({
+      success: false,
+      message: err.message || 'Error al validar sesión'
+    });
   }
 }
 

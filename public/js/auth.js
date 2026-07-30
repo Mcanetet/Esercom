@@ -50,7 +50,11 @@ const Auth = {
       throw new Error(hint);
     }
     if (res.status === 401) {
-      this.logout();
+      // Solo cerrar sesión en rutas de auth; no por fallos de módulos opcionales
+      const isAuthRoute = String(url).includes('/api/auth/');
+      if (isAuthRoute || options.forceLogout) {
+        this.logout();
+      }
       throw new Error(data.message || 'Sesión expirada');
     }
     if (!res.ok || data.success === false) {
