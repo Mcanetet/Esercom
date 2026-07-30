@@ -355,3 +355,45 @@ body {
     grid-template-columns: repeat(2, 1fr);
   }
 }
+
+/* PWA install bar (login) */
+.pwa-install-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9999;
+  padding: 0.65rem 0.85rem calc(0.65rem + env(safe-area-inset-bottom, 0px));
+  background: #0f172a;
+  color: #f8fafc;
+  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.2);
+}
+.pwa-install-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  max-width: 420px;
+  margin: 0 auto;
+}
+.pwa-install-text { display: flex; flex-direction: column; gap: 0.1rem; }
+.pwa-install-text strong { font-size: 0.92rem; }
+.pwa-install-text span { font-size: 0.78rem; color: #94a3b8; }
+.pwa-install-actions { display: flex; gap: 0.4rem; flex-shrink: 0; }
+.pwa-install-hint {
+  margin: 0.55rem auto 0;
+  max-width: 420px;
+  font-size: 0.78rem;
+  color: #cbd5e1;
+  text-align: center;
+}
+.pwa-install-bar .btn-primary {
+  background: #0ea5e9;
+  border-color: #0ea5e9;
+  color: #fff;
+}
+.pwa-install-bar .btn-secondary {
+  background: transparent;
+  border: 1px solid #475569;
+  color: #e2e8f0;
+}

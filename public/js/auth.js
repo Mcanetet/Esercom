@@ -374,3 +374,11 @@ window.closeSidebar = closeSidebar;
 window.renderShell = renderShell;
 window.initHeaderAlerts = initHeaderAlerts;
 window.refreshUserSession = refreshUserSession;
+
+(function loadPwa() {
+  if (document.querySelector('script[data-pwa]')) return;
+  const s = document.createElement('script');
+  s.src = '/js/pwa.js?v=1';
+  s.setAttribute('data-pwa', '1');
+  document.head.appendChild(s);
+})();
