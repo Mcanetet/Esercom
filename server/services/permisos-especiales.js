@@ -113,19 +113,56 @@ const FLAG_BY_CODIGO = Object.fromEntries(
   CATALOGO.filter((c) => c.flag).map((c) => [c.codigo, c.flag])
 );
 
+async function migrateLiberadoresColumns(db) {
+  if (db.driver !== 'mysql') return;
+  const cols = [
+    ['modulo', "VARCHAR(80) NOT NULL DEFAULT ''"],
+    ['titulo', 'VARCHAR(255) NULL'],
+    ['descripcion', 'TEXT NULL'],
+    ['activo', 'TINYINT NOT NULL DEFAULT 1'],
+    ['orden', 'INT NOT NULL DEFAULT 0']
+  ];
+  for (const [col, ddl] of cols) {
+    try {
+      const row = await db.prepare(`
+        SELECT COUNT(*) AS c FROM information_schema.columns
+        WHERE table_schema = DATABASE() AND table_name = 'liberadores_config' AND column_name = ?
+      `).get(col);
+      if (row && Number(row.c) === 0) {
+        await db.exec(`ALTER TABLE liberadores_config ADD COLUMN \`${col}\` ${ddl}`);
+      }
+    } catch (err) {
+      try {
+        await db.exec(`ALTER TABLE liberadores_config ADD COLUMN \`${col}\` ${ddl}`);
+      } catch (err2) {
+        if (!/duplicate column/i.test(err2.message || '')) {
+          console.warn('[permisos] migrate', col, err.message || err2.message);
+        }
+      }
+    }
+  }
+  try {
+    await db.exec(`
+      UPDATE liberadores_config SET titulo = nombre
+      WHERE (titulo IS NULL OR titulo = '') AND nombre IS NOT NULL AND nombre != ''
+    `);
+  } catch (_) { /* legacy sin nombre */ }
+}
+
 async function ensureTables(db) {
   if (db.driver === 'mysql') {
     await db.exec(`
       CREATE TABLE IF NOT EXISTS liberadores_config (
         codigo VARCHAR(80) NOT NULL PRIMARY KEY,
         modulo VARCHAR(80) NOT NULL DEFAULT '',
-        titulo VARCHAR(255) NOT NULL,
+        titulo VARCHAR(255) NULL,
         descripcion TEXT NULL,
         usuario_id INT NULL,
         activo TINYINT NOT NULL DEFAULT 1,
         orden INT NOT NULL DEFAULT 0
       )
     `);
+    await migrateLiberadoresColumns(db);
     await db.exec(`
       CREATE TABLE IF NOT EXISTS liberadores_extra (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -162,19 +199,28 @@ async function ensureTables(db) {
 async function seedCatalog(db) {
   for (let i = 0; i < CATALOGO.length; i++) {
     const c = CATALOGO[i];
+    const orden = (i + 1) * 10;
     try {
       if (db.driver === 'mysql') {
         await db.prepare(`
           INSERT IGNORE INTO liberadores_config (codigo, modulo, titulo, descripcion, activo, orden)
           VALUES (?, ?, ?, ?, 1, ?)
-        `).run(c.codigo, c.modulo, c.titulo, c.descripcion, (i + 1) * 10);
+        `).run(c.codigo, c.modulo, c.titulo, c.descripcion, orden);
       } else {
         await db.prepare(`
           INSERT OR IGNORE INTO liberadores_config (codigo, modulo, titulo, descripcion, activo, orden)
           VALUES (?, ?, ?, ?, 1, ?)
-        `).run(c.codigo, c.modulo, c.titulo, c.descripcion, (i + 1) * 10);
+        `).run(c.codigo, c.modulo, c.titulo, c.descripcion, orden);
       }
-    } catch (_) { /* ignore */ }
+    } catch (_) {
+      try {
+        if (db.driver === 'mysql') {
+          await db.prepare(`INSERT IGNORE INTO liberadores_config (codigo) VALUES (?)`).run(c.codigo);
+        } else {
+          await db.prepare(`INSERT OR IGNORE INTO liberadores_config (codigo) VALUES (?)`).run(c.codigo);
+        }
+      } catch (_2) { /* ignore */ }
+    }
   }
 }
 
@@ -243,22 +289,31 @@ async function seedKnownUsers(db) {
 }
 
 async function listAll(db) {
-  const configsRaw = await db.prepare(`
-    SELECT codigo, modulo, titulo, descripcion, usuario_id, activo, orden
-    FROM liberadores_config
-    WHERE activo = 1 OR activo IS NULL
-    ORDER BY orden, modulo, titulo
-  `).all();
-  const configs = (configsRaw || []).filter((c) => c.codigo && !String(c.codigo).startsWith('_'));
+  const titularByCodigo = {};
+  try {
+    const rows = await db.prepare(`
+      SELECT codigo, usuario_id FROM liberadores_config
+    `).all();
+    for (const r of rows || []) {
+      if (r.usuario_id) titularByCodigo[r.codigo] = r.usuario_id;
+    }
+  } catch (err) {
+    console.warn('[permisos] listAll config:', err.message);
+  }
 
-  const extras = await db.prepare(`
-    SELECT e.codigo, e.usuario_id, e.id AS extra_id,
-           u.nombre, u.apellido, u.email, u.cargo
-    FROM liberadores_extra e
-    JOIN usuarios u ON u.id = e.usuario_id
-    WHERE u.activo = 1 OR u.activo IS NULL
-    ORDER BY e.codigo, u.nombre
-  `).all();
+  let extras = [];
+  try {
+    extras = await db.prepare(`
+      SELECT e.codigo, e.usuario_id, e.id AS extra_id,
+             u.nombre, u.apellido, u.email, u.cargo
+      FROM liberadores_extra e
+      JOIN usuarios u ON u.id = e.usuario_id
+      WHERE u.activo = 1 OR u.activo IS NULL
+      ORDER BY e.codigo, u.nombre
+    `).all();
+  } catch (err) {
+    console.warn('[permisos] listAll extras:', err.message);
+  }
 
   const byCodigo = {};
   for (const e of extras) {
@@ -272,31 +327,35 @@ async function listAll(db) {
     });
   }
 
-  // También usuario_id principal en config (legacy)
-  for (const c of configs) {
-    if (c.usuario_id) {
+  for (const [codigo, usuarioId] of Object.entries(titularByCodigo)) {
+    if (byCodigo[codigo]?.some((x) => x.usuario_id === usuarioId)) continue;
+    try {
       const u = await db.prepare(`
         SELECT id, nombre, apellido, email, cargo FROM usuarios WHERE id = ?
-      `).get(c.usuario_id);
+      `).get(usuarioId);
       if (u) {
-        const list = byCodigo[c.codigo] || [];
-        if (!list.some((x) => x.usuario_id === u.id)) {
-          list.unshift({
-            extra_id: null,
-            usuario_id: u.id,
-            nombre: `${u.nombre} ${u.apellido}`.trim(),
-            email: u.email,
-            cargo: u.cargo,
-            titular: true
-          });
-          byCodigo[c.codigo] = list;
-        }
+        const list = byCodigo[codigo] || [];
+        list.unshift({
+          extra_id: null,
+          usuario_id: u.id,
+          nombre: `${u.nombre} ${u.apellido}`.trim(),
+          email: u.email,
+          cargo: u.cargo,
+          titular: true
+        });
+        byCodigo[codigo] = list;
       }
-    }
+    } catch (_) { /* ignore */ }
   }
 
-  return configs.map((c) => ({
-    ...c,
+  return CATALOGO.map((c, i) => ({
+    codigo: c.codigo,
+    modulo: c.modulo,
+    titulo: c.titulo,
+    descripcion: c.descripcion,
+    usuario_id: titularByCodigo[c.codigo] || null,
+    activo: 1,
+    orden: (i + 1) * 10,
     usuarios: byCodigo[c.codigo] || [],
     flag: FLAG_BY_CODIGO[c.codigo] || null
   }));
