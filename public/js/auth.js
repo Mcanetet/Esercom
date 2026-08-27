@@ -79,6 +79,9 @@
     }
 
     // Techo de módulos por empresa (Configuraciones → Módulos visibles)
+    // Admin / subadmin siempre ven el catálogo completo (el techo aplica a roles operativos)
+    if (isAdminUser(user)) return true;
+
     const techo = user.modulos_empresa;
     const compartidos = user.modulos_compartidos;
     const isCompartido = Array.isArray(compartidos)

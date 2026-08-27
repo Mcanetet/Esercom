@@ -69,11 +69,11 @@ function hasUserFlag(user, flag) {
 
 function userHasPageAccess(user, pageKey) {
   if (!user) return false;
+  if (isAdminUser(user)) return true;
   try {
     const { isModuleEnabledForUser } = require('../services/empresa-modulos');
     if (!isModuleEnabledForUser(user, pageKey)) return false;
   } catch (_) { /* schema opcional */ }
-  if (isAdminUser(user)) return true;
   let pages = user.paginas_permitidas;
   try {
     if (typeof pages === 'string') pages = JSON.parse(pages);
@@ -1970,8 +1970,12 @@ router.get('/config/roles', async (req, res) => {
 /** Módulos visibles de esta empresa (techo). GET: cualquier autenticado. POST: admin/subadmin. */
 router.get('/config/modulos-empresa', async (req, res) => {
   try {
-    const { getEmpresaModulos, DEFAULT_CATALOG } = require('../services/empresa-modulos');
+    const {
+      getEmpresaModulos, DEFAULT_CATALOG, ensureWmsInRoles, syncCatalogIntoEmpresaModulos
+    } = require('../services/empresa-modulos');
     const catalog = DEFAULT_CATALOG;
+    await syncCatalogIntoEmpresaModulos(req.db, catalog);
+    try { await ensureWmsInRoles(req.db); } catch (_) { /* opcional */ }
     const data = await getEmpresaModulos(req.db, catalog);
     res.json({
       success: true,

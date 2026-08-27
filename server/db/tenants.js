@@ -571,6 +571,13 @@ async function migrateUserFlags(db) {
       console.warn('[mysql] wms:', err.message);
     }
     try {
+      const { ensureWmsInRoles, syncCatalogIntoEmpresaModulos, DEFAULT_CATALOG } = require('../services/empresa-modulos');
+      await syncCatalogIntoEmpresaModulos(db, DEFAULT_CATALOG);
+      await ensureWmsInRoles(db);
+    } catch (err) {
+      console.warn('[mysql] wms roles/modulos:', err.message);
+    }
+    try {
       const { ensureUsuarioRolesSchema } = require('../services/usuario-roles');
       await ensureUsuarioRolesSchema(db);
     } catch (err) {
@@ -694,6 +701,14 @@ async function migrateUserFlags(db) {
     await ensureWmsSchema(db);
   } catch (err) {
     console.warn('[sqlite] wms:', err.message);
+  }
+
+  try {
+    const { ensureWmsInRoles, syncCatalogIntoEmpresaModulos, DEFAULT_CATALOG } = require('../services/empresa-modulos');
+    await syncCatalogIntoEmpresaModulos(db, DEFAULT_CATALOG);
+    await ensureWmsInRoles(db);
+  } catch (err) {
+    console.warn('[sqlite] wms roles/modulos:', err.message);
   }
 
   await ensureColumns(db, 'materiales', [['categoria', 'TEXT']]);

@@ -76,10 +76,72 @@ async function loadCompartidos() {
 }
 
 /**
+ * Si la empresa ya tiene techo configurado, inserta módulos nuevos del catálogo
+ * como visibles (evita que WMS u otros queden invisibles al no existir en la tabla).
+ */
+async function syncCatalogIntoEmpresaModulos(db, catalogKeys = DEFAULT_CATALOG) {
+  await ensureEmpresaModulosSchema(db);
+  let rows = [];
+  try {
+    rows = await db.prepare('SELECT page_key FROM empresa_modulos').all();
+  } catch (_) {
+    return;
+  }
+  if (!rows.length) return;
+  const existing = new Set(rows.map((r) => normalizeKey(r.page_key)));
+  for (const key of (catalogKeys || DEFAULT_CATALOG).map(normalizeKey)) {
+    if (existing.has(key) || !key) continue;
+    try {
+      await db.prepare(
+        'INSERT INTO empresa_modulos (page_key, visible) VALUES (?, 1)'
+      ).run(key, 1);
+    } catch (_) { /* unique race */ }
+  }
+}
+
+/**
+ * Agrega wms.html a roles que ya operan materiales/operaciones (sin tocar '*').
+ */
+async function ensureWmsInRoles(db) {
+  let roles = [];
+  try {
+    roles = await db.prepare('SELECT id, paginas_permitidas FROM roles').all();
+  } catch (_) {
+    return { updated: 0 };
+  }
+  let updated = 0;
+  for (const r of roles || []) {
+    let pages;
+    try {
+      pages = typeof r.paginas_permitidas === 'string'
+        ? JSON.parse(r.paginas_permitidas)
+        : r.paginas_permitidas;
+    } catch (_) {
+      continue;
+    }
+    if (!Array.isArray(pages)) continue;
+    if (pages.includes('*')) continue;
+    if (pages.some((p) => normalizeKey(p) === 'wms.html')) continue;
+    const blob = pages.join(' ').toLowerCase();
+    const relevant = /inspeccion|checklist|agenda|solicitud-salida|material|configuraciones|papelera|tareas|reportes/
+      .test(blob) || pages.length >= 6;
+    if (!relevant) continue;
+    pages.push('wms.html');
+    try {
+      await db.prepare('UPDATE roles SET paginas_permitidas = ? WHERE id = ?')
+        .run(JSON.stringify(pages), r.id);
+      updated += 1;
+    } catch (_) { /* ignore */ }
+  }
+  return { updated };
+}
+
+/**
  * @returns {Promise<{ configured: boolean, visibles: string[], ocultos: string[], compartidos: string[] }>}
  */
 async function getEmpresaModulos(db, catalogKeys = DEFAULT_CATALOG) {
   await ensureEmpresaModulosSchema(db);
+  await syncCatalogIntoEmpresaModulos(db, catalogKeys);
   const compartidos = (await loadCompartidos()).map(normalizeKey);
   const sharedSet = new Set(compartidos);
   let rows = [];
@@ -155,6 +217,8 @@ module.exports = {
   ALWAYS_ON,
   DEFAULT_CATALOG,
   ensureEmpresaModulosSchema,
+  syncCatalogIntoEmpresaModulos,
+  ensureWmsInRoles,
   getEmpresaModulos,
   setEmpresaModulos,
   isModuleEnabledForUser,
