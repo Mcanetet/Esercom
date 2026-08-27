@@ -198,15 +198,25 @@ async function ensureMysqlModuleTables(db) {
     )`,
     `CREATE TABLE IF NOT EXISTS agenda_camion_pluma_v2 (
       id INT AUTO_INCREMENT PRIMARY KEY,
+      empresa VARCHAR(255) NOT NULL DEFAULT 'Sercom',
       fecha DATE NOT NULL,
       hora_inicio VARCHAR(16) NULL,
-      hora_termino VARCHAR(16) NULL,
-      tipo_servicio VARCHAR(128) NULL,
-      cliente VARCHAR(255) NULL,
+      hora_fin VARCHAR(16) NULL,
+      tipo_servicio VARCHAR(128) DEFAULT 'Servicio',
+      solicitante VARCHAR(255) NULL,
       chofer VARCHAR(255) NULL,
-      numero_proyecto VARCHAR(128) NULL,
+      ceco_id INT NULL,
+      proyecto VARCHAR(255) NULL,
       origen VARCHAR(255) NULL,
       destino VARCHAR(255) NULL,
+      direccion TEXT NULL,
+      contacto VARCHAR(255) NULL,
+      telefono VARCHAR(64) NULL,
+      kilometraje DECIMAL(12,2) DEFAULT 0,
+      orden_compra VARCHAR(128) NULL,
+      detalle_material TEXT NULL,
+      observaciones TEXT NULL,
+      es_bloqueo TINYINT NOT NULL DEFAULT 0,
       estado VARCHAR(64) DEFAULT 'Programado',
       creado_por INT NULL,
       fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -230,6 +240,74 @@ async function ensureMysqlModuleTables(db) {
       solicitante_id INT NULL,
       eliminado TINYINT NOT NULL DEFAULT 0,
       fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE TABLE IF NOT EXISTS catalogo_g (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      codigo VARCHAR(64) NULL,
+      correlativo INT NULL,
+      empresa VARCHAR(255) NOT NULL,
+      descripcion TEXT NOT NULL,
+      cantidad DECIMAL(15,2) NOT NULL DEFAULT 0,
+      bodega VARCHAR(255) NULL,
+      foto VARCHAR(512) NULL,
+      foto_hash VARCHAR(64) NULL,
+      estado VARCHAR(64) NOT NULL DEFAULT 'Nuevo',
+      creado_por INT NULL,
+      actualizado_por INT NULL,
+      eliminado TINYINT NOT NULL DEFAULT 0,
+      fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP,
+      fecha_actualizacion DATETIME NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS catalogo_s (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      codigo VARCHAR(64) NULL,
+      correlativo INT NULL,
+      empresa VARCHAR(255) NOT NULL,
+      descripcion TEXT NOT NULL,
+      cantidad DECIMAL(15,2) NOT NULL DEFAULT 0,
+      bodega VARCHAR(255) NULL,
+      foto VARCHAR(512) NULL,
+      foto_hash VARCHAR(64) NULL,
+      estado VARCHAR(64) NOT NULL DEFAULT 'Nuevo',
+      creado_por INT NULL,
+      actualizado_por INT NULL,
+      eliminado TINYINT NOT NULL DEFAULT 0,
+      fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP,
+      fecha_actualizacion DATETIME NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS catalogo_n (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      codigo VARCHAR(64) NULL,
+      correlativo INT NULL,
+      empresa VARCHAR(255) NOT NULL,
+      descripcion TEXT NOT NULL,
+      cantidad DECIMAL(15,2) NOT NULL DEFAULT 0,
+      bodega VARCHAR(255) NULL,
+      foto VARCHAR(512) NULL,
+      foto_hash VARCHAR(64) NULL,
+      estado VARCHAR(64) NOT NULL DEFAULT 'Nuevo',
+      creado_por INT NULL,
+      actualizado_por INT NULL,
+      eliminado TINYINT NOT NULL DEFAULT 0,
+      fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP,
+      fecha_actualizacion DATETIME NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS catalogo_t (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      codigo VARCHAR(64) NULL,
+      correlativo INT NULL,
+      empresa VARCHAR(255) NOT NULL,
+      descripcion TEXT NOT NULL,
+      cantidad DECIMAL(15,2) NOT NULL DEFAULT 0,
+      bodega VARCHAR(255) NULL,
+      foto VARCHAR(512) NULL,
+      foto_hash VARCHAR(64) NULL,
+      estado VARCHAR(64) NOT NULL DEFAULT 'Nuevo',
+      creado_por INT NULL,
+      actualizado_por INT NULL,
+      eliminado TINYINT NOT NULL DEFAULT 0,
+      fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP,
+      fecha_actualizacion DATETIME NULL
     )`,
     `CREATE TABLE IF NOT EXISTS seguimiento_contratos (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -294,6 +372,98 @@ async function ensureMysqlModuleTables(db) {
   console.log('[mysql] tablas de módulos verificadas/creadas');
 }
 
+async function ensureAngelTrainingSchema(db) {
+  const isMysql = db.driver === 'mysql';
+  if (isMysql) {
+    await ensureMysqlColumns(db, 'angel_ia_config', [
+      ['instrucciones_entrenamiento', 'TEXT NULL'],
+      ['ejemplos_entrenamiento', 'TEXT NULL'],
+      ['prompt_seguridad', 'TEXT NULL'],
+      ['ejemplos_seguridad', 'TEXT NULL'],
+      ['seguridad_activa', 'TINYINT NOT NULL DEFAULT 1'],
+      ['voz_activa', 'TINYINT NOT NULL DEFAULT 1'],
+      ['voz_tts_voice', 'VARCHAR(32) NULL'],
+      ['voz_tts_model', 'VARCHAR(64) NULL'],
+      ['voz_autoplay', 'TINYINT NOT NULL DEFAULT 1'],
+      ['voz_instrucciones', 'TEXT NULL'],
+      ['voz_stt_model', 'VARCHAR(64) NULL'],
+      ['voz_tts_speed', 'DECIMAL(4,2) NULL']
+    ]);
+    try {
+      await db.exec(`
+        CREATE TABLE IF NOT EXISTS angel_ia_train_mensajes (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          rol VARCHAR(32) NOT NULL,
+          contenido TEXT NOT NULL,
+          meta_json TEXT NULL,
+          fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await db.exec(`
+        CREATE TABLE IF NOT EXISTS angel_ia_seguridad_log (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          tipo VARCHAR(64) NOT NULL,
+          severidad VARCHAR(16) NOT NULL DEFAULT 'media',
+          mensaje_usuario TEXT NOT NULL,
+          usuario_id INT NULL,
+          usuario_nombre VARCHAR(255) NULL,
+          usuario_email VARCHAR(255) NULL,
+          bloqueado TINYINT NOT NULL DEFAULT 1,
+          detalle TEXT NULL,
+          origen VARCHAR(32) NOT NULL DEFAULT 'produccion',
+          fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+    } catch (err) {
+      console.warn('[mysql] angel train/security tables:', err.message);
+    }
+    return;
+  }
+
+  await ensureColumns(db, 'angel_ia_config', [
+    ['instrucciones_entrenamiento', 'TEXT'],
+    ['ejemplos_entrenamiento', 'TEXT'],
+    ['prompt_seguridad', 'TEXT'],
+    ['ejemplos_seguridad', 'TEXT'],
+    ['seguridad_activa', 'INTEGER NOT NULL DEFAULT 1'],
+    ['voz_activa', 'INTEGER NOT NULL DEFAULT 1'],
+    ['voz_tts_voice', 'TEXT'],
+    ['voz_tts_model', 'TEXT'],
+    ['voz_autoplay', 'INTEGER NOT NULL DEFAULT 1'],
+    ['voz_instrucciones', 'TEXT'],
+    ['voz_stt_model', 'TEXT'],
+    ['voz_tts_speed', 'REAL']
+  ]);
+  try {
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS angel_ia_train_mensajes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        rol TEXT NOT NULL,
+        contenido TEXT NOT NULL,
+        meta_json TEXT,
+        fecha_creacion TEXT NOT NULL DEFAULT (datetime('now'))
+      )
+    `);
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS angel_ia_seguridad_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tipo TEXT NOT NULL,
+        severidad TEXT NOT NULL DEFAULT 'media',
+        mensaje_usuario TEXT NOT NULL,
+        usuario_id INTEGER,
+        usuario_nombre TEXT,
+        usuario_email TEXT,
+        bloqueado INTEGER NOT NULL DEFAULT 1,
+        detalle TEXT,
+        origen TEXT NOT NULL DEFAULT 'produccion',
+        fecha_creacion TEXT NOT NULL DEFAULT (datetime('now'))
+      )
+    `);
+  } catch (err) {
+    console.warn('[sqlite] angel train/security tables:', err.message);
+  }
+}
+
 async function migrateUserFlags(db) {
   if (db.driver === 'mysql') {
     await ensureMysqlColumns(db, 'usuarios', [
@@ -302,20 +472,119 @@ async function migrateUserFlags(db) {
       ['flag_flota', 'TINYINT NOT NULL DEFAULT 0'],
       ['flag_ssgg', 'TINYINT NOT NULL DEFAULT 0'],
       ['flag_camion_pluma', 'TINYINT NOT NULL DEFAULT 0'],
-      ['flag_aprobador_salida', 'TINYINT NOT NULL DEFAULT 0']
+      ['flag_aprobador_salida', 'TINYINT NOT NULL DEFAULT 0'],
+      ['flag_chofer', 'TINYINT NOT NULL DEFAULT 0'],
+      ['empresas_acceso', 'TEXT NULL']
     ]);
     await ensureMysqlColumns(db, 'materiales', [
       ['precio', 'DECIMAL(15,2) DEFAULT 0'],
       ['stock', 'DECIMAL(15,2) DEFAULT 0'],
       ['categoria', 'VARCHAR(255) NULL']
     ]);
+    await ensureMysqlColumns(db, 'solicitudes_materiales', [
+      ['bodega_nombre', 'VARCHAR(255) NULL'],
+      ['ubicacion_entrega', 'VARCHAR(64) NULL'],
+      ['bodeguero_id', 'INT NULL'],
+      ['despacho_conductor', 'VARCHAR(255) NULL'],
+      ['despacho_rut', 'VARCHAR(32) NULL'],
+      ['despacho_patente', 'VARCHAR(32) NULL'],
+      ['despacho_direccion', 'VARCHAR(500) NULL'],
+      ['numero_guia_softland', 'VARCHAR(128) NULL'],
+      ['guia_softland_adjunto', 'VARCHAR(500) NULL'],
+      ['guias_proveedor', 'MEDIUMTEXT NULL'],
+      ['guia_proveedor_archivo', 'VARCHAR(500) NULL'],
+      ['guia_proveedor_numero', 'VARCHAR(128) NULL'],
+      ['foto_entrega', 'MEDIUMTEXT NULL'],
+      ['quien_retira', 'VARCHAR(255) NULL'],
+      ['quien_usa', 'VARCHAR(255) NULL'],
+      ['numero_proyecto', 'VARCHAR(255) NULL'],
+      ['fecha_entrega', 'DATETIME NULL'],
+      ['fecha_cierre', 'DATETIME NULL'],
+      ['fecha_aprobacion', 'DATETIME NULL'],
+      ['aprobado_por_id', 'INT NULL']
+    ]);
+    await ensureMysqlColumns(db, 'historial_solicitudes', [
+      ['accion', 'VARCHAR(255) NULL'],
+      ['comentarios', 'TEXT NULL'],
+      ['observaciones', 'TEXT NULL'],
+      ['fecha_cambio', 'DATETIME NULL']
+    ]);
     await ensureMysqlModuleTables(db);
+    try {
+      const { ensureAgendaCamionSchema } = require('../services/agenda-camion');
+      await ensureAgendaCamionSchema(db);
+    } catch (err) {
+      console.warn('[mysql] agenda camion pluma:', err.message);
+    }
+    try {
+      const { ensureChecklistSchema } = require('../services/checklist-flota');
+      await ensureChecklistSchema(db);
+    } catch (err) {
+      console.warn('[mysql] checklist flota:', err.message);
+    }
     try {
       const { initPermisos } = require('../services/permisos-especiales');
       await initPermisos(db);
     } catch (err) {
       console.warn('[mysql] permisos especiales:', err.message);
     }
+    try {
+      const { ensureCatalogoGSchema } = require('../services/catalogo-g');
+      await ensureCatalogoGSchema(db);
+    } catch (err) {
+      console.warn('[mysql] catalogo G:', err.message);
+    }
+    try {
+      const { ensureCatalogoSSchema } = require('../services/catalogo-s');
+      await ensureCatalogoSSchema(db);
+    } catch (err) {
+      console.warn('[mysql] catalogo S:', err.message);
+    }
+    try {
+      const { ensureCatalogoNSchema } = require('../services/catalogo-n');
+      await ensureCatalogoNSchema(db);
+    } catch (err) {
+      console.warn('[mysql] catalogo N:', err.message);
+    }
+    try {
+      const { ensureCatalogoTSchema } = require('../services/catalogo-t');
+      await ensureCatalogoTSchema(db);
+    } catch (err) {
+      console.warn('[mysql] catalogo T:', err.message);
+    }
+    try {
+      const { ensureIncidenciasSchema } = require('../services/incidencias');
+      await ensureIncidenciasSchema(db);
+    } catch (err) {
+      console.warn('[mysql] incidencias:', err.message);
+    }
+    try {
+      const { ensureInspeccionSchema } = require('../services/inspeccion');
+      await ensureInspeccionSchema(db);
+    } catch (err) {
+      console.warn('[mysql] inspeccion:', err.message);
+    }
+    try {
+      const { ensureWmsSchema } = require('../services/wms');
+      await ensureWmsSchema(db);
+    } catch (err) {
+      console.warn('[mysql] wms:', err.message);
+    }
+    try {
+      const { ensureUsuarioRolesSchema } = require('../services/usuario-roles');
+      await ensureUsuarioRolesSchema(db);
+    } catch (err) {
+      console.warn('[mysql] usuario roles:', err.message);
+    }
+    try {
+      await db.exec(`
+        UPDATE usuarios SET flag_chofer = 1
+        WHERE COALESCE(flag_chofer, 0) = 0 AND (
+          LOWER(COALESCE(cargo,'')) LIKE '%chofer%'
+          OR LOWER(COALESCE(cargo,'')) LIKE '%conductor%'
+        )
+      `);
+    } catch (_) { /* ignore */ }
     // Angel IA (solo ESERCOM; no existe en PHP)
     try {
       await db.exec(`
@@ -374,6 +643,7 @@ async function migrateUserFlags(db) {
         )
       `);
       await db.prepare(`INSERT IGNORE INTO angel_ia_config (id, model, activo, reporte_semanal) VALUES (1, 'gpt-4o-mini', 0, 1)`).run();
+      await ensureAngelTrainingSchema(db);
     } catch (err) {
       console.warn('[mysql] angel tables:', err.message);
     }
@@ -386,7 +656,9 @@ async function migrateUserFlags(db) {
     ['flag_flota', 'INTEGER NOT NULL DEFAULT 0'],
     ['flag_ssgg', 'INTEGER NOT NULL DEFAULT 0'],
     ['flag_camion_pluma', 'INTEGER NOT NULL DEFAULT 0'],
-    ['flag_aprobador_salida', 'INTEGER NOT NULL DEFAULT 0']
+    ['flag_aprobador_salida', 'INTEGER NOT NULL DEFAULT 0'],
+    ['flag_chofer', 'INTEGER NOT NULL DEFAULT 0'],
+    ['empresas_acceso', 'TEXT']
   ]);
 
   try {
@@ -394,6 +666,34 @@ async function migrateUserFlags(db) {
     await initPermisos(db);
   } catch (err) {
     console.warn('[sqlite] permisos especiales:', err.message);
+  }
+
+  try {
+    const { ensureAgendaCamionSchema } = require('../services/agenda-camion');
+    await ensureAgendaCamionSchema(db);
+  } catch (err) {
+    console.warn('[sqlite] agenda camion pluma:', err.message);
+  }
+
+  try {
+    const { ensureIncidenciasSchema } = require('../services/incidencias');
+    await ensureIncidenciasSchema(db);
+  } catch (err) {
+    console.warn('[sqlite] incidencias:', err.message);
+  }
+
+  try {
+    const { ensureInspeccionSchema } = require('../services/inspeccion');
+    await ensureInspeccionSchema(db);
+  } catch (err) {
+    console.warn('[sqlite] inspeccion:', err.message);
+  }
+
+  try {
+    const { ensureWmsSchema } = require('../services/wms');
+    await ensureWmsSchema(db);
+  } catch (err) {
+    console.warn('[sqlite] wms:', err.message);
   }
 
   await ensureColumns(db, 'materiales', [['categoria', 'TEXT']]);
@@ -474,8 +774,16 @@ async function migrateUserFlags(db) {
     ['foto_trasera', 'TEXT'],
     ['foto_rueda', 'TEXT'],
     ['foto_kit_herramientas', 'TEXT'],
-    ['foto_colision', 'TEXT']
+    ['foto_colision', 'TEXT'],
+    ['vehiculo_marca', 'TEXT'],
+    ['vehiculo_modelo', 'TEXT'],
+    ['vehiculo_tipo', 'TEXT'],
+    ['vehiculo_anio', 'TEXT'],
+    ['propietario_nombre', 'TEXT'],
+    ['propietario_rut', 'TEXT']
   ]);
+
+  await ensureAngelTrainingSchema(db);
 }
 
 function getDb(slug) {
@@ -483,12 +791,17 @@ function getDb(slug) {
   if (!config.getCompany(key)) {
     throw new Error(`Empresa no válida: ${slug}`);
   }
-  // MySQL: una sola BD productiva compartida por todas las empresas del selector
   if (config.isMysql) {
-    if (!connections.has('__mysql__')) {
-      throw new Error('MySQL no inicializado. Arranque con DB_DRIVER=mysql y credenciales válidas.');
+    const dbName = config.mysqlDatabaseFor(key);
+    const connKey = `mysql:${dbName}`;
+    if (!connections.has(connKey)) {
+      // Compat legado: pool único sin multiempresa
+      if (connections.has('__mysql__') && !config.mysqlPerCompany) {
+        return connections.get('__mysql__');
+      }
+      throw new Error(`MySQL no inicializado para ${key} (${dbName}). Revise DB_NAME_* / DB_PER_COMPANY.`);
     }
-    return connections.get('__mysql__');
+    return connections.get(connKey);
   }
   if (!connections.has(key)) {
     if (!fs.existsSync(dbPathFor(key))) {
@@ -497,6 +810,93 @@ function getDb(slug) {
     connections.set(key, openDb(key));
   }
   return connections.get(key);
+}
+
+/** Todas las BDs de empresa ya abiertas (útil para sync de usuarios). */
+function getAllCompanyDbs() {
+  const out = [];
+  for (const company of config.companies) {
+    try {
+      out.push({ company, db: getDb(company.slug) });
+    } catch (_) { /* BD aún no disponible */ }
+  }
+  return out;
+}
+
+async function initAll() {
+  const results = [];
+
+  if (config.isMysql) {
+    if (!config.mysql.user) {
+      throw new Error(
+        'DB_DRIVER=mysql requiere DB_USER. Revise variables de entorno.'
+      );
+    }
+    const seen = new Map(); // dbName → MysqlDatabase
+    for (const company of config.companies) {
+      const dbName = config.mysqlDatabaseFor(company.slug);
+      let db = seen.get(dbName);
+      if (!db) {
+        console.log(`[DB] MySQL → ${config.mysql.host}/${dbName} (${company.slug})`);
+        try {
+          db = await createMysqlPool({ ...config.mysql, database: dbName });
+        } catch (err) {
+          console.error(`[DB] No se pudo abrir ${dbName} (${company.slug}):`, err.message);
+          if (company.slug === 'sercom' || !config.mysqlPerCompany) throw err;
+          results.push({
+            slug: company.slug,
+            name: company.name,
+            file: `mysql://${dbName}`,
+            created: false,
+            error: err.message,
+            admin: '(BD no disponible — créela en cPanel y ejecute scripts/create-company-dbs.js)'
+          });
+          continue;
+        }
+        await migrateUserFlags(db);
+        seen.set(dbName, db);
+        connections.set(`mysql:${dbName}`, db);
+        if (!config.mysqlPerCompany) connections.set('__mysql__', db);
+      } else {
+        connections.set(`mysql:${dbName}`, db);
+      }
+      results.push({
+        slug: company.slug,
+        name: company.name,
+        file: `mysql://${dbName}`,
+        created: false,
+        admin: `(usuarios en ${dbName})`
+      });
+    }
+    if (!results.some((r) => !r.error)) {
+      throw new Error('Ninguna base MySQL de empresa pudo abrirse.');
+    }
+    return results;
+  }
+
+  await initEngine();
+  ensureDataDir();
+
+  for (const company of config.companies) {
+    const file = dbPathFor(company.slug);
+    const existed = fs.existsSync(file);
+    const db = openDb(company.slug);
+    await db.exec(schemaSql);
+    await db.exec(schemaModulesSql);
+    await db.exec(schemaAngelSql);
+    await migrateUserFlags(db);
+    await seedCompany(db, company);
+    connections.set(company.slug, db);
+    results.push({
+      slug: company.slug,
+      name: company.name,
+      file,
+      created: !existed,
+      admin: `admin@${company.emailDomain}`
+    });
+  }
+
+  return results;
 }
 
 async function seedCompany(db, company) {
@@ -520,7 +920,11 @@ async function seedCompany(db, company) {
     [2, 'Jefe de Proyecto', 'Aprueba solicitudes de materiales', '["home.html","solicitud-salida-materiales.html","reportes.html"]'],
     [3, 'Solicitante', 'Crea solicitudes de salida', '["home.html","solicitud-salida-materiales.html"]'],
     [4, 'Bodeguero', 'Gestiona entregas de bodega', '["home.html","solicitud-salida-materiales.html","gestion-entrega.html"]'],
-    [5, 'Supply Chain', 'Aprobación OC y proveedores', '["home.html","solicitud-salida-materiales.html","portal-proveedores.html","solicitud-de-compras.html"]']
+    [5, 'Supply Chain', 'Aprobación OC y proveedores', '["home.html","solicitud-salida-materiales.html","portal-proveedores.html","solicitud-de-compras.html"]'],
+    [6, 'Catálogo G', 'Acceso al módulo Catálogo G (empresa Global)', '["home.html","catalogo-g.html"]'],
+    [7, 'Catálogo S', 'Acceso al módulo Catálogo S (empresa Sercom)', '["home.html","catalogo-s.html"]'],
+    [8, 'Catálogo N', 'Acceso al módulo Catálogo N (empresa Nexus)', '["home.html","catalogo-n.html"]'],
+    [9, 'Catálogo T', 'Acceso al módulo Catálogo T (empresa Táctica)', '["home.html","catalogo-t.html"]']
   ];
   const insertRol = db.prepare(`
     INSERT OR IGNORE INTO roles (id, nombre, descripcion, paginas_permitidas) VALUES (?, ?, ?, ?)
@@ -774,58 +1178,11 @@ async function seedModules(db, company) {
   `).run();
 }
 
-async function initAll() {
-  const results = [];
-
-  if (config.isMysql) {
-    if (!config.mysql.user || !config.mysql.database) {
-      throw new Error(
-        'DB_DRIVER=mysql requiere DB_USER y DB_NAME (ej. gosercom_productivo_db). Revise variables de entorno.'
-      );
-    }
-    console.log(`[DB] MySQL → ${config.mysql.host}/${config.mysql.database}`);
-    const db = await createMysqlPool(config.mysql);
-    await migrateUserFlags(db);
-    connections.set('__mysql__', db);
-    for (const company of config.companies) {
-      results.push({
-        slug: company.slug,
-        name: company.name,
-        file: `mysql://${config.mysql.database}`,
-        created: false,
-        admin: `(usuarios en ${config.mysql.database})`
-      });
-    }
-    return results;
-  }
-
-  await initEngine();
-  ensureDataDir();
-
-  for (const company of config.companies) {
-    const file = dbPathFor(company.slug);
-    const existed = fs.existsSync(file);
-    const db = openDb(company.slug);
-    await db.exec(schemaSql);
-    await db.exec(schemaModulesSql);
-    await db.exec(schemaAngelSql);
-    await migrateUserFlags(db);
-    await seedCompany(db, company);
-    connections.set(company.slug, db);
-    results.push({
-      slug: company.slug,
-      name: company.name,
-      file,
-      created: !existed,
-      admin: `admin@${company.emailDomain}`
-    });
-  }
-
-  return results;
-}
-
 async function closeAll() {
+  const closed = new Set();
   for (const db of connections.values()) {
+    if (closed.has(db)) continue;
+    closed.add(db);
     await db.close();
   }
   connections.clear();
@@ -833,10 +1190,12 @@ async function closeAll() {
 
 module.exports = {
   getDb,
+  getAllCompanyDbs,
   initAll,
   closeAll,
   dbPathFor,
   ensureDataDir,
   initEngine,
-  isMysql: () => config.isMysql
+  isMysql: () => config.isMysql,
+  migrateUserFlags
 };

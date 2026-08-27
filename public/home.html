@@ -3,14 +3,16 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <title>Menú Principal - ESERCOM</title>
+  <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <link href="/css/app.css?v=resp2" rel="stylesheet">
+  <link href="/css/app.css?v=insp1" rel="stylesheet">
 </head>
 <body class="page-home">
-  <script src="/js/auth.js?v=pages1"></script>
+  <script src="/js/auth.js?v=notif2"></script>
   <script>
     const user = renderShell(
       '/home.html',
@@ -29,79 +31,129 @@
       { href: '/seguimiento-contratos.html', icon: 'fa-file-contract', color: '#854d0e', title: 'Gestión de Contratos', group: 'Compras' },
       { href: '/agenda-camion-pluma.html', icon: 'fa-truck-ramp-box', color: '#c2410c', title: 'Agenda Camión Pluma', group: 'Operaciones' },
       { href: '/checklist-flota.html', icon: 'fa-clipboard-check', color: '#b45309', title: 'Checklist Flota', group: 'Operaciones' },
+      { href: '/inspeccion.html', icon: 'fa-clipboard-list', color: '#9a3412', title: 'Inspección', group: 'Operaciones' },
+      { href: '/wms.html', icon: 'fa-warehouse', color: '#0f766e', title: 'WMS Bodega', group: 'Operaciones' },
+      { href: '/catalogo-g.html', icon: 'fa-boxes-stacked', color: '#0f766e', title: 'Catálogo G', group: 'Compras', empresas: ['global'] },
+      { href: '/catalogo-s.html', icon: 'fa-boxes-stacked', color: '#0f766e', title: 'Catálogo S', group: 'Compras', empresas: ['sercom'] },
+      { href: '/catalogo-n.html', icon: 'fa-boxes-stacked', color: '#0f766e', title: 'Catálogo N', group: 'Compras', empresas: ['nexus'] },
+      { href: '/catalogo-t.html', icon: 'fa-boxes-stacked', color: '#0f766e', title: 'Catálogo T', group: 'Compras', empresas: ['tactica'] },
       { href: '/tareas-operativas.html', icon: 'fa-tasks', color: '#a16207', title: 'Tareas Operativas', group: 'Operaciones' },
       { href: '/serviciosgenerales.html', icon: 'fa-tools', color: '#78716c', title: 'Servicios Generales', group: 'Operaciones' },
       { href: '/solicitud-de-graficas.html', icon: 'fa-image', color: '#1d4ed8', title: 'Solicitud de Gráficas', group: 'Soporte' },
       { href: '/telecomunicaciones.html', icon: 'fa-satellite-dish', color: '#1e40af', title: 'Telecomunicaciones', group: 'Soporte' },
       { href: '/reportes.html', icon: 'fa-chart-bar', color: '#334155', title: 'Reportes', group: 'Soporte' },
-      { href: '/angel-ia.html', icon: 'fa-robot', color: '#0284c7', title: 'Angel IA', group: 'Soporte' },
-      { href: '/angel-seguridad.html', icon: 'fa-shield-halved', color: '#0f172a', title: 'Seguridad Angel IA', group: 'Soporte' },
-      { href: '/configuraciones.html', icon: 'fa-cog', color: '#475569', title: 'Configuraciones', group: 'Soporte' },
-      { href: '/papelera.html', icon: 'fa-trash-alt', color: '#64748b', title: 'Papelera', group: 'Soporte' }
+      { href: '/angel-ia.html', icon: 'fa-comment-dots', color: '#0284c7', title: 'Angel', group: 'Soporte' },
+      { href: '/incidencias.html', icon: 'fa-life-ring', color: '#be123c', title: 'Incidencias', group: 'Soporte' },
+      { href: '/configuraciones.html', icon: 'fa-cog', color: '#475569', title: 'Configuraciones', group: 'Administración' },
+      { href: '/papelera.html', icon: 'fa-trash-alt', color: '#64748b', title: 'Papelera', group: 'Administración' }
     ];
+    const GROUP_ORDER = ['Materiales', 'Compras', 'Operaciones', 'Soporte', 'Administración'];
 
-    async function loadDashboard() {
+    function paintHome(stats) {
       const content = document.getElementById('app-content');
-      try {
-        const { data } = await Auth.api('/api/catalogos/dashboard');
-        const empresa = data.empresa?.name || data.empresa?.razonSocial || user.empresaNombre || '';
-        const nombre = (user.nombre || user.nombreCompleto || 'Usuario').split(' ')[0];
+      const empresa = stats?.empresa?.name || stats?.empresa?.razonSocial || user.empresaNombre || '';
+      const nombre = (user.nombre || user.nombreCompleto || 'Usuario').split(' ')[0];
+      const byGroup = {};
+      MODULES.filter((m) => {
+        if (m.empresas?.length) {
+          const emp = String(user.empresa || '').toLowerCase();
+          if (!m.empresas.map((e) => String(e).toLowerCase()).includes(emp)) return false;
+        }
+        return canAccess(user, m.href.replace(/^\//, ''));
+      }).forEach((m) => {
+        if (!byGroup[m.group]) byGroup[m.group] = [];
+        byGroup[m.group].push(m);
+      });
 
-        const byGroup = {};
-        MODULES.filter((m) => canAccess(user, m.href.replace(/^\//, ''))).forEach((m) => {
-          if (!byGroup[m.group]) byGroup[m.group] = [];
-          byGroup[m.group].push(m);
-        });
-
-        content.innerHTML = `
-          <div class="home">
-            <div class="home-bar">
-              <div>
-                <div class="home-bar-brand">ESERCOM · ${empresa}</div>
-                <div class="home-bar-hello">Hola, ${nombre}</div>
-              </div>
-              <div class="home-bar-stats">
-                <div><b>${data.pendientes}</b><span>Activas</span></div>
-                <div><b>${data.cerradas}</b><span>Cerradas</span></div>
-                <div><b>${data.materiales}</b><span>Materiales</span></div>
-              </div>
+      content.innerHTML = `
+        <div class="home">
+          <div class="home-bar">
+            <div>
+              <div class="home-bar-brand">ESERCOM · ${empresa}</div>
+              <div class="home-bar-hello">Hola, ${nombre}</div>
             </div>
-
-            <div class="home-find">
-              <i class="fas fa-search"></i>
-              <input type="search" id="moduleSearch" placeholder="Buscar módulo…" autocomplete="off">
-            </div>
-
-            <div id="moduleGroups">
-              ${Object.entries(byGroup).map(([group, items]) => `
-                <section class="home-section" data-group>
-                  <h3 class="home-section-title">${group}</h3>
-                  <div class="home-tiles">
-                    ${items.map((m) => `
-                      <a class="home-tile" href="${m.href}" data-module data-q="${(m.title + ' ' + m.group).toLowerCase()}">
-                        <span class="home-tile-icon" style="background:${m.color}"><i class="fas ${m.icon}"></i></span>
-                        <span class="home-tile-title">${m.title}</span>
-                      </a>
-                    `).join('')}
-                  </div>
-                </section>
-              `).join('')}
+            <div class="home-bar-stats">
+              <div><b id="homeStatPend">${stats?.pendientes ?? '…'}</b><span>Activas</span></div>
+              <div><b id="homeStatCerr">${stats?.cerradas ?? '…'}</b><span>Cerradas</span></div>
+              <div><b id="homeStatMat">${stats?.materiales ?? '…'}</b><span>Materiales</span></div>
             </div>
           </div>
-        `;
 
-        document.getElementById('moduleSearch').addEventListener('input', (e) => {
-          const q = e.target.value.trim().toLowerCase();
-          document.querySelectorAll('[data-module]').forEach((el) => {
-            el.style.display = !q || el.dataset.q.includes(q) ? '' : 'none';
-          });
-          document.querySelectorAll('[data-group]').forEach((g) => {
-            const any = [...g.querySelectorAll('[data-module]')].some((el) => el.style.display !== 'none');
-            g.style.display = any ? '' : 'none';
-          });
+          <div class="home-find">
+            <i class="fas fa-search"></i>
+            <input type="search" id="moduleSearch" placeholder="Buscar módulo…" autocomplete="off">
+          </div>
+
+          <div id="moduleGroups">
+            ${GROUP_ORDER.filter((group) => byGroup[group]?.length).map((group) => {
+              const items = byGroup[group];
+              const isAdmin = group === 'Administración';
+              return `
+              <section class="home-section${isAdmin ? ' home-section--admin' : ''}" data-group>
+                <h3 class="home-section-title">${group}</h3>
+                <div class="home-tiles${isAdmin ? ' home-tiles--admin' : ''}">
+                  ${items.map((m) => `
+                    <a class="home-tile" href="${m.href}" data-module data-q="${(m.title + ' ' + m.group).toLowerCase()}">
+                      <span class="home-tile-icon" style="background:${m.color}"><i class="fas ${m.icon}"></i></span>
+                      <span class="home-tile-title">${m.title}</span>
+                    </a>
+                  `).join('')}
+                </div>
+              </section>
+            `;
+            }).join('')}
+          </div>
+        </div>
+      `;
+
+      document.getElementById('moduleSearch').addEventListener('input', (e) => {
+        const q = e.target.value.trim().toLowerCase();
+        document.querySelectorAll('[data-module]').forEach((el) => {
+          el.style.display = !q || el.dataset.q.includes(q) ? '' : 'none';
         });
-      } catch (err) {
-        content.innerHTML = `<div class="alert alert-error">${err.message}</div>`;
+        document.querySelectorAll('[data-group]').forEach((g) => {
+          const any = [...g.querySelectorAll('[data-module]')].some((el) => el.style.display !== 'none');
+          g.style.display = any ? '' : 'none';
+        });
+      });
+
+      document.querySelectorAll('.home-tile').forEach((a) => {
+        a.addEventListener('pointerenter', () => {
+          if (a.dataset.prefetched) return;
+          a.dataset.prefetched = '1';
+          const link = document.createElement('link');
+          link.rel = 'prefetch';
+          link.href = a.getAttribute('href');
+          document.head.appendChild(link);
+        }, { once: true });
+        a.addEventListener('click', (e) => {
+          const href = a.getAttribute('href');
+          if (!href) return;
+          e.preventDefault();
+          a.classList.add('is-going');
+          window.location.assign(href);
+        });
+      });
+    }
+
+    async function loadDashboard() {
+      paintHome(null);
+      try {
+        const { data } = await Auth.api('/api/catalogos/dashboard');
+        const pend = document.getElementById('homeStatPend');
+        const cerr = document.getElementById('homeStatCerr');
+        const mat = document.getElementById('homeStatMat');
+        if (pend) pend.textContent = data.pendientes;
+        if (cerr) cerr.textContent = data.cerradas;
+        if (mat) mat.textContent = data.materiales;
+        const brand = document.querySelector('.home-bar-brand');
+        const empresa = data.empresa?.name || data.empresa?.razonSocial;
+        if (brand && empresa) brand.textContent = 'ESERCOM · ' + empresa;
+      } catch (_) {
+        ['homeStatPend', 'homeStatCerr', 'homeStatMat'].forEach((id) => {
+          const el = document.getElementById(id);
+          if (el && el.textContent === '…') el.textContent = '—';
+        });
       }
     }
 

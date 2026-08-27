@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>WMS Bodega - ESERCOM</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <link href="/css/app.css?v=wms1" rel="stylesheet">
+  <link href="/css/wms.css?v=1" rel="stylesheet">
+</head>
+<body>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" defer></script>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js" defer></script>
+  <script src="/js/auth.js?v=notif2"></script>
+  <script src="/js/ui.js?v=resp2"></script>
+  <script src="/js/wms.js?v=3"></script>
+  <script>
+    const user = renderShell(
+      '/wms.html',
+      '<i class="fas fa-warehouse"></i> WMS Bodega',
+      'Modelo caótico · plano/foto · rack/piso · QR ingreso/salida'
+    );
+    if (user) WmsApp.boot();
+  </script>
+</body>
+</html>

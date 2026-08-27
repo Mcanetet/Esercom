@@ -7,7 +7,9 @@
     "start": "node server/index.js",
     "dev": "node --watch server/index.js",
     "init-db": "node server/db/init.js",
-    "import-mysql": "node server/db/import-mysql-json.js"
+    "import-mysql": "node server/db/import-mysql-json.js",
+    "create-company-dbs": "node scripts/create-company-dbs.js",
+    "test:wms": "node scripts/wms-flow-tests.js"
   },
   "engines": {
     "node": ">=18"
@@ -19,11 +21,13 @@
     "exceljs": "^4.4.0",
     "express": "^4.21.2",
     "jsonwebtoken": "^9.0.2",
+    "mammoth": "^1.12.0",
     "morgan": "^1.10.0",
     "mysql2": "^3.23.2",
     "node-cron": "^4.6.0",
     "nodemailer": "^9.0.3",
     "openai": "^6.49.0",
+    "pdf-parse": "^1.1.4",
     "sql.js": "^1.12.0"
   }
 }
