@@ -44,6 +44,8 @@ CREATE TABLE IF NOT EXISTS usuarios (
   flag_ssgg INTEGER NOT NULL DEFAULT 0,
   flag_camion_pluma INTEGER NOT NULL DEFAULT 0,
   flag_aprobador_salida INTEGER NOT NULL DEFAULT 0,
+  flag_chofer INTEGER NOT NULL DEFAULT 0,
+  empresas_acceso TEXT,
   activo INTEGER NOT NULL DEFAULT 1,
   ultimo_acceso TEXT,
   fecha_creacion TEXT NOT NULL DEFAULT (datetime('now')),

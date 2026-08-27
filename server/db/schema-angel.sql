@@ -14,6 +14,11 @@ CREATE TABLE IF NOT EXISTS angel_ia_config (
   smtp_user TEXT,
   smtp_pass_enc TEXT,
   smtp_from TEXT,
+  instrucciones_entrenamiento TEXT,
+  ejemplos_entrenamiento TEXT,
+  prompt_seguridad TEXT,
+  ejemplos_seguridad TEXT,
+  seguridad_activa INTEGER NOT NULL DEFAULT 1,
   actualizado_por INTEGER,
   actualizado_en TEXT NOT NULL DEFAULT (datetime('now')),
   FOREIGN KEY (actualizado_por) REFERENCES usuarios(id)
@@ -41,6 +46,28 @@ CREATE TABLE IF NOT EXISTS angel_ia_mensajes (
   meta_json TEXT,
   fecha_creacion TEXT NOT NULL DEFAULT (datetime('now')),
   FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
+);
+
+CREATE TABLE IF NOT EXISTS angel_ia_seguridad_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tipo TEXT NOT NULL,
+  severidad TEXT NOT NULL DEFAULT 'media',
+  mensaje_usuario TEXT NOT NULL,
+  usuario_id INTEGER,
+  usuario_nombre TEXT,
+  usuario_email TEXT,
+  bloqueado INTEGER NOT NULL DEFAULT 1,
+  detalle TEXT,
+  origen TEXT NOT NULL DEFAULT 'produccion',
+  fecha_creacion TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS angel_ia_train_mensajes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  rol TEXT NOT NULL,
+  contenido TEXT NOT NULL,
+  meta_json TEXT,
+  fecha_creacion TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS angel_ia_reportes (

@@ -7,7 +7,7 @@
   <title>Panel Administrador - ESERCOM</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <link href="/css/app.css?v=resp2" rel="stylesheet">
+  <link href="/css/app.css?v=toast1" rel="stylesheet">
   <style>
     .admin-hero {
       background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 55%, #0c4a6e 100%);
@@ -40,7 +40,7 @@
   </style>
 </head>
 <body>
-  <script src="/js/auth.js?v=pages1"></script>
+  <script src="/js/auth.js?v=notif2"></script>
   <script>
     const user = renderShell('/panel-admin.html', '<i class="fas fa-shield-halved"></i> Panel Administrador', 'Configuración y acceso total');
 
@@ -62,10 +62,10 @@
           <p>${user.nombreCompleto || user.email} — acceso completo al sistema y configuración de APIs.</p>
         </div>
         <div class="admin-grid">
-          <a class="admin-tile" href="/angel-seguridad.html">
-            <i class="fas fa-key" style="background:linear-gradient(135deg,#0ea5e9,#0369a1)"></i>
-            <strong>API OpenAI (Angel IA)</strong>
-            <span>Guardar sk-..., modelo, SMTP y reportes semanales.</span>
+          <a class="admin-tile" href="/acceso-angel.html">
+            <i class="fas fa-robot" style="background:linear-gradient(135deg,#0ea5e9,#0369a1)"></i>
+            <strong>Entrenar Angel IA</strong>
+            <span>API OpenAI, seguridad, instrucciones y pruebas (acceso reservado).</span>
           </a>
           <a class="admin-tile" href="/configuraciones.html">
             <i class="fas fa-users-cog" style="background:linear-gradient(135deg,#475569,#334155)"></i>

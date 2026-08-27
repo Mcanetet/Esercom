@@ -13,7 +13,7 @@
   </script>
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link href="/css/login.css?v=r2" rel="stylesheet">
+  <link href="/css/login.css?v=r3" rel="stylesheet">
   <link rel="manifest" href="/manifest.webmanifest">
   <meta name="theme-color" content="#0ea5e9">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -85,6 +85,7 @@
             <input type="checkbox" id="remember" name="remember">
             Recordarme
           </label>
+          <button type="button" class="link-forgot" id="btnForgot">¿Olvidaste tu contraseña?</button>
         </div>
 
         <button type="submit" class="btn-login" id="loginBtn">
@@ -92,7 +93,53 @@
         </button>
       </form>
 
-      <div class="demo-hint" id="demoHint"></div>
+      <div class="recover-panel" id="recoverPanel" hidden>
+        <button type="button" class="recover-back" id="recoverBack"><i class="fas fa-arrow-left"></i> Volver al login</button>
+        <h2 class="recover-title">Recuperar contraseña</h2>
+        <p class="recover-sub" id="recoverSub">Te enviaremos un código de 6 dígitos a tu correo.</p>
+        <div id="recoverAlert"></div>
+
+        <div class="recover-step" data-step="1">
+          <div class="form-group">
+            <label class="form-label" for="recoverEmail">Correo electrónico</label>
+            <div class="input-container">
+              <input type="email" class="form-control" id="recoverEmail" autocomplete="email" placeholder="Tu correo registrado">
+              <i class="fas fa-envelope input-icon"></i>
+            </div>
+          </div>
+          <button type="button" class="btn-login" id="btnSendCode">
+            <span class="btn-text">Enviar código</span>
+          </button>
+        </div>
+
+        <div class="recover-step" data-step="2" hidden>
+          <div class="form-group">
+            <label class="form-label" for="recoverCode">Código de verificación</label>
+            <div class="input-container">
+              <input type="text" class="form-control" id="recoverCode" inputmode="numeric" maxlength="6" placeholder="000000" autocomplete="one-time-code">
+              <i class="fas fa-shield-alt input-icon"></i>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="recoverPass">Nueva contraseña</label>
+            <div class="input-container">
+              <input type="password" class="form-control" id="recoverPass" minlength="6" autocomplete="new-password" placeholder="Mínimo 6 caracteres">
+              <i class="fas fa-lock input-icon"></i>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="recoverPass2">Confirmar contraseña</label>
+            <div class="input-container">
+              <input type="password" class="form-control" id="recoverPass2" minlength="6" autocomplete="new-password" placeholder="Repita la contraseña">
+              <i class="fas fa-lock input-icon"></i>
+            </div>
+          </div>
+          <button type="button" class="btn-login" id="btnResetPass">
+            <span class="btn-text">Guardar nueva contraseña</span>
+          </button>
+          <button type="button" class="link-forgot recover-resend" id="btnResendCode">Reenviar código</button>
+        </div>
+      </div>
 
       <div class="footer">
         <p>&copy; 2026 ESERCOM. Todos los derechos reservados.</p>
@@ -100,7 +147,7 @@
     </div>
   </div>
 
-  <script src="/js/pwa.js?v=1"></script>
-  <script src="/js/login.js?v=r2"></script>
+  <script src="/js/pwa.js?v=2"></script>
+  <script src="/js/login.js?v=sec1"></script>
 </body>
 </html>

@@ -29,8 +29,8 @@ function initEngine() {
 }
 
 function flattenParams(params) {
-  if (params.length === 1 && Array.isArray(params[0])) return params[0];
-  return params;
+  const raw = params.length === 1 && Array.isArray(params[0]) ? params[0] : params;
+  return raw.map((v) => (v === undefined ? null : v));
 }
 
 class Statement {

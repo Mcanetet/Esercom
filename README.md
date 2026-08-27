@@ -103,13 +103,22 @@ Para **usar MySQL en vivo** (Bluehosting, sin migrar): [docs/BLUEHOSTING_MYSQL.m
 
 ## Angel IA
 
-Asistente OpenAI integrado:
+Asistente OpenAI integrado (chat flotante + página completa):
 
-1. Entra como **Administrador**
-2. Ve a **Seguridad Angel IA** e ingresa tu API key (`sk-...`)
-3. Usa **Angel IA** para preguntar, generar Excel semanal por CECO/materiales y sincronizar alertas
+1. En **producción**, define en las variables del servidor Node:
+   - `OPENAI_API_KEY=sk-...`
+   - `OPENAI_MODEL=gpt-4o-mini` (opcional)
+2. Alternativa: portal de entrenamiento en `/acceso-angel.html` (API, seguridad e instrucciones).
+3. Usa **Angel IA** o el botón flotante para preguntar, generar Excel semanal por CECO/materiales y sincronizar alertas.
 
-La API key se guarda cifrada (AES-256-GCM) por empresa y solo es visible/editable por administradores.
+Si `OPENAI_API_KEY` está en el servidor, tiene prioridad sobre la key guardada en base de datos.
+
+**Entrenamiento (URL oculta, no está en el menú):**
+
+1. Define `ANGEL_TRAIN_PASSWORD` en las variables del servidor.
+2. Entra en `https://tudominio.cl/acceso-angel.html` con esa clave.
+3. Configura instrucciones y ejemplos; prueba en el sandbox sin mezclar con usuarios.
+4. Los usuarios normales solo usan Angel IA en producción — no pueden editar el entrenamiento.
 
 Scheduler:
 - Alertas de pendientes: cada hora

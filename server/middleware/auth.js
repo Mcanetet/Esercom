@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const config = require('../config');
 const { getDb } = require('../db/tenants');
+const { enrichUserRoles } = require('../services/usuario-roles');
 
 async function loadAuthUser(db, userId) {
   const withFlags = `
@@ -27,7 +28,7 @@ async function loadAuthUser(db, userId) {
            r.nombre AS rol, r.permisos AS paginas_permitidas, NULL AS departamento
     FROM usuarios u
     LEFT JOIN roles r ON r.id = u.rol_id
-    WHERE u.id = ?
+    WHERE u.id = ? AND (u.activo = 1 OR u.activo IS NULL)
   `;
 
   try {
@@ -58,26 +59,52 @@ async function authRequired(req, res, next) {
 
   try {
     const payload = jwt.verify(token, config.jwtSecret);
+    if (payload.scope === 'angel_train') {
+      return res.status(401).json({
+        success: false,
+        message: 'Token de entrenamiento Angel; use el portal /acceso-angel.html'
+      });
+    }
     const company = config.getCompany(payload.empresa);
     if (!company) {
       return res.status(401).json({ success: false, message: 'Empresa inválida en sesión' });
     }
 
-    const db = getDb(payload.empresa);
-    const user = await loadAuthUser(db, payload.userId);
+    const userId = Number(payload.userId);
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Sesión inválida (sin usuario)' });
+    }
 
-    if (!user) {
+    const db = getDb(payload.empresa);
+    const rawUser = await loadAuthUser(db, userId);
+
+    if (!rawUser) {
       return res.status(401).json({ success: false, message: 'Usuario no válido' });
     }
 
-    let paginas = ['*'];
+    let user;
+    try {
+      user = await enrichUserRoles(db, rawUser);
+    } catch (e) {
+      console.warn('[auth] enrichUserRoles:', e.message);
+      user = rawUser;
+    }
+
+    let paginas = [];
     try {
       const raw = user.paginas_permitidas;
-      if (raw == null || raw === '') paginas = ['*'];
+      if (raw == null || raw === '') paginas = [];
       else if (typeof raw === 'object') paginas = raw;
       else paginas = JSON.parse(raw);
-      if (!Array.isArray(paginas)) paginas = ['*'];
-    } catch (_) { /* keep default */ }
+      if (!Array.isArray(paginas)) paginas = [];
+    } catch (_) {
+      paginas = [];
+    }
+    // Solo admin explícito obtiene wildcard por defecto si el rol viene vacío
+    const isAdmin =
+      Number(user.rol_id) === 1 ||
+      (Array.isArray(user.rol_ids) && user.rol_ids.map(Number).includes(1));
+    if (!paginas.length && isAdmin) paginas = ['*'];
 
     req.auth = {
       userId: user.id,
@@ -91,6 +118,8 @@ async function authRequired(req, res, next) {
         email: user.email,
         rol: user.rol || 'Usuario',
         rol_id: user.rol_id,
+        rol_ids: Array.isArray(user.rol_ids) ? user.rol_ids : (user.rol_id ? [Number(user.rol_id)] : []),
+        roles: Array.isArray(user.roles) ? user.roles : (user.rol ? String(user.rol).split(',').map((s) => s.trim()) : []),
         cargo: user.cargo || user.rol || 'Usuario',
         departamento: user.departamento || 'Sin departamento',
         departamento_id: user.departamento_id,
@@ -102,9 +131,20 @@ async function authRequired(req, res, next) {
         flag_flota: !!user.flag_flota,
         flag_ssgg: !!user.flag_ssgg,
         flag_camion_pluma: !!user.flag_camion_pluma,
-        flag_aprobador_salida: !!user.flag_aprobador_salida
+        flag_aprobador_salida: !!user.flag_aprobador_salida,
+        modulos_empresa: null,
+        modulos_compartidos: []
       }
     };
+    try {
+      const { getEmpresaModulos } = require('../services/empresa-modulos');
+      const mods = await getEmpresaModulos(db);
+      req.auth.user.modulos_empresa = mods.visibles;
+      req.auth.user.modulos_empresa_configured = mods.configured;
+      req.auth.user.modulos_compartidos = mods.compartidos || [];
+    } catch (e) {
+      console.warn('[auth] empresa_modulos:', e.message);
+    }
     req.db = db;
     next();
   } catch (err) {

@@ -6,9 +6,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const loginBtn = document.getElementById('loginBtn');
   const empresaSelect = document.getElementById('empresa');
   const themeBtn = document.getElementById('themeToggle');
-  const demoHint = document.getElementById('demoHint');
+  const recoverPanel = document.getElementById('recoverPanel');
+  const recoverAlert = document.getElementById('recoverAlert');
+  const recoverSub = document.getElementById('recoverSub');
 
-  // Tema
   const savedTheme = localStorage.getItem('theme');
   if (savedTheme === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
   themeBtn?.addEventListener('click', () => {
@@ -22,7 +23,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Sesión existente
   const token = localStorage.getItem('auth_token');
   const userRaw = localStorage.getItem('user');
   if (token && userRaw) {
@@ -50,27 +50,20 @@ document.addEventListener('DOMContentLoaded', () => {
       </div>`;
   }
 
-  function updateDemoHint() {
-    const slug = empresaSelect.value;
-    const map = {
-      global: 'admin@globalviapublica.com',
-      sercom: 'admin@serviciossercom.cl',
-      nexus: 'admin@nexus.cl',
-      tactica: 'admin@tactica.cl',
-      intercanje: 'admin@intercanje.cl'
-    };
-    if (demoHint && map[slug]) {
-      demoHint.innerHTML = `Demo <strong>${map[slug]}</strong> / <strong>password</strong>`;
-    }
+  function showRecoverAlert(message, type = 'danger') {
+    if (!recoverAlert) return;
+    recoverAlert.innerHTML = `
+      <div class="alert alert-${type}">
+        <i class="fas fa-${type === 'danger' ? 'exclamation-circle' : 'check-circle'}"></i>
+        <span>${message}</span>
+      </div>`;
   }
 
-  // Chips de empresa
   document.querySelectorAll('.company-chip').forEach((chip) => {
     chip.addEventListener('click', () => {
       document.querySelectorAll('.company-chip').forEach((c) => c.classList.remove('active'));
       chip.classList.add('active');
       empresaSelect.value = chip.dataset.slug;
-      updateDemoHint();
     });
   });
 
@@ -78,10 +71,120 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('.company-chip').forEach((c) => {
       c.classList.toggle('active', c.dataset.slug === empresaSelect.value);
     });
-    updateDemoHint();
   });
 
-  updateDemoHint();
+  function setRecoverStep(step) {
+    document.querySelectorAll('.recover-step').forEach((el) => {
+      el.hidden = Number(el.dataset.step) !== step;
+    });
+    if (recoverSub) {
+      recoverSub.textContent = step === 1
+        ? 'Te enviaremos un código de 6 dígitos a tu correo.'
+        : 'Ingresa el código recibido y tu nueva contraseña.';
+    }
+  }
+
+  function openRecover() {
+    form.hidden = true;
+    recoverPanel.hidden = false;
+    recoverAlert.innerHTML = '';
+    const emailLogin = document.getElementById('email')?.value?.trim();
+    if (emailLogin) document.getElementById('recoverEmail').value = emailLogin;
+    setRecoverStep(1);
+  }
+
+  function closeRecover() {
+    recoverPanel.hidden = true;
+    form.hidden = false;
+    recoverAlert.innerHTML = '';
+  }
+
+  document.getElementById('btnForgot')?.addEventListener('click', openRecover);
+  document.getElementById('recoverBack')?.addEventListener('click', closeRecover);
+
+  async function sendCode() {
+    const empresa = empresaSelect.value;
+    const email = document.getElementById('recoverEmail').value.trim();
+    if (!empresa || !email) {
+      showRecoverAlert('Ingrese su correo electrónico');
+      return;
+    }
+    const btn = document.getElementById('btnSendCode');
+    const btnResend = document.getElementById('btnResendCode');
+    [btn, btnResend].forEach((b) => { if (b) b.disabled = true; });
+    if (btn) btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Enviando…';
+    try {
+      const res = await fetch('/api/auth/recuperar/enviar-codigo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ empresa, email })
+      });
+      const result = await res.json();
+      if (!res.ok || !result.success) {
+        showRecoverAlert(result.message || 'No se pudo enviar el código');
+        return;
+      }
+      showRecoverAlert(result.message || 'Código enviado', 'success');
+      setRecoverStep(2);
+    } catch (_) {
+      showRecoverAlert('No se pudo conectar con el servidor');
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '<span class="btn-text">Enviar código</span>';
+      }
+      if (btnResend) btnResend.disabled = false;
+    }
+  }
+
+  document.getElementById('btnSendCode')?.addEventListener('click', sendCode);
+  document.getElementById('btnResendCode')?.addEventListener('click', sendCode);
+
+  document.getElementById('btnResetPass')?.addEventListener('click', async () => {
+    const empresa = empresaSelect.value;
+    const email = document.getElementById('recoverEmail').value.trim();
+    const codigo = document.getElementById('recoverCode').value.trim();
+    const password_nueva = document.getElementById('recoverPass').value;
+    const password_confirmar = document.getElementById('recoverPass2').value;
+    if (!codigo || codigo.length < 6) {
+      showRecoverAlert('Ingrese el código de 6 dígitos');
+      return;
+    }
+    if (!password_nueva || password_nueva.length < 6) {
+      showRecoverAlert('La nueva contraseña debe tener al menos 6 caracteres');
+      return;
+    }
+    if (password_nueva !== password_confirmar) {
+      showRecoverAlert('La confirmación no coincide');
+      return;
+    }
+    const btn = document.getElementById('btnResetPass');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Guardando…';
+    try {
+      const res = await fetch('/api/auth/recuperar/restablecer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ empresa, email, codigo, password_nueva, password_confirmar })
+      });
+      const result = await res.json();
+      if (!res.ok || !result.success) {
+        showRecoverAlert(result.message || 'No se pudo restablecer');
+        return;
+      }
+      showRecoverAlert(result.message || 'Contraseña actualizada', 'success');
+      document.getElementById('email').value = email;
+      setTimeout(() => {
+        closeRecover();
+        showAlert('Contraseña actualizada. Inicie sesión con la nueva clave.', 'success');
+      }, 900);
+    } catch (_) {
+      showRecoverAlert('No se pudo conectar con el servidor');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<span class="btn-text">Guardar nueva contraseña</span>';
+    }
+  });
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -112,7 +215,6 @@ document.addEventListener('DOMContentLoaded', () => {
       localStorage.setItem('user', JSON.stringify(result.user));
       localStorage.setItem('auth_token', result.token);
       showAlert('Inicio de sesión exitoso. Redirigiendo...', 'success');
-      // Misma origen (evita www vs no-www que borra la sesión de localStorage)
       const home = `${window.location.origin}/home.html`;
       setTimeout(() => window.location.replace(home), 500);
     } catch (err) {

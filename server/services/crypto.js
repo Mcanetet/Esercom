@@ -4,7 +4,8 @@ const config = require('../config');
 const ALGO = 'aes-256-gcm';
 
 function getKey() {
-  return crypto.createHash('sha256').update(String(config.jwtSecret || 'esercom')).digest();
+  const secret = config.encryptionSecret || config.jwtSecret || 'esercom';
+  return crypto.createHash('sha256').update(String(secret)).digest();
 }
 
 function encrypt(plain) {

@@ -125,13 +125,26 @@ router.get('/cecos', async (req, res) => {
 });
 
 router.get('/bodegas', async (req, res) => {
+  const defaults = [
+    { id: null, codigo: 'CON', nombre: 'Bodega Conchalí', ubicacion: 'Conchalí' },
+    { id: null, codigo: 'MER', nombre: 'Bodega Mersan', ubicacion: 'Mersan' },
+    { id: null, codigo: 'SBE', nombre: 'Bodega San Bernardo', ubicacion: 'San Bernardo' },
+    { id: null, codigo: 'QUI', nombre: 'Bodega Quilicura', ubicacion: 'Quilicura' },
+    { id: null, codigo: 'LAM', nombre: 'Bodega Lampa', ubicacion: 'Lampa' }
+  ];
   try {
     const rows = await req.db.prepare(`
       SELECT id, codigo, nombre, ubicacion FROM bodegas WHERE activo = 1 OR activo IS NULL ORDER BY nombre
     `).all();
-    res.json({ success: true, data: rows });
+    if (rows && rows.length) {
+      // Une defaults que falten por nombre
+      const have = new Set(rows.map((r) => String(r.nombre || '').toLowerCase()));
+      const extra = defaults.filter((d) => !have.has(d.nombre.toLowerCase()));
+      return res.json({ success: true, data: [...rows, ...extra] });
+    }
+    res.json({ success: true, data: defaults });
   } catch (err) {
-    res.json({ success: true, data: [] });
+    res.json({ success: true, data: defaults });
   }
 });
 
@@ -155,10 +168,12 @@ router.get('/usuarios', async (req, res) => {
       flota: 'flag_flota',
       ssgg: 'flag_ssgg',
       camion_pluma: 'flag_camion_pluma',
-      aprobador_salida: 'flag_aprobador_salida'
+      aprobador_salida: 'flag_aprobador_salida',
+      chofer: 'flag_chofer'
     };
     const cols = await getColumns(req.db, 'usuarios');
-    const flagSelect = ['flag_checklist', 'flag_flota', 'flag_ssgg', 'flag_camion_pluma', 'flag_aprobador_salida']
+    const flagCols = ['flag_checklist', 'flag_flota', 'flag_ssgg', 'flag_camion_pluma', 'flag_aprobador_salida', 'flag_chofer'];
+    const flagSelect = flagCols
       .map((f) => (hasCol(cols, f) ? `COALESCE(u.${f}, 0) AS ${f}` : `0 AS ${f}`))
       .join(',\n             ');
 
@@ -171,25 +186,54 @@ router.get('/usuarios', async (req, res) => {
       LEFT JOIN departamentos d ON d.id = u.departamento_id
       WHERE u.activo = 1 OR u.activo IS NULL
     `;
-    if (flag && allowed[flag] && hasCol(cols, allowed[flag])) {
+    if (hasCol(cols, 'empresas_acceso')) {
+      sql = sql.replace(
+        'u.departamento_id,',
+        'u.departamento_id, u.empresas_acceso,'
+      );
+    }
+    if (flag === 'chofer') {
+      const parts = [];
+      if (hasCol(cols, 'flag_chofer')) parts.push('u.flag_chofer = 1');
+      parts.push(
+        "LOWER(COALESCE(u.cargo,'')) LIKE '%chofer%'",
+        "LOWER(COALESCE(u.cargo,'')) LIKE '%conductor%'",
+        "LOWER(COALESCE(r.nombre,'')) LIKE '%chofer%'",
+        "LOWER(COALESCE(r.nombre,'')) LIKE '%conductor%'"
+      );
+      sql += ` AND (${parts.join(' OR ')})`;
+    } else if (flag && allowed[flag] && hasCol(cols, allowed[flag])) {
       sql += ` AND u.${allowed[flag]} = 1`;
     }
     sql += ' ORDER BY u.nombre, u.apellido';
     const rows = await req.db.prepare(sql).all();
-    res.json({ success: true, data: rows });
+    const { attachRolesToUserList } = require('../services/usuario-roles');
+    const { parseEmpresasAcceso } = require('../services/usuario-empresas');
+    const withRoles = await attachRolesToUserList(req.db, rows);
+    const sessionEmpresa = String(req.auth?.empresa || '').toLowerCase();
+    const data = withRoles.map((u) => {
+      const empresas = parseEmpresasAcceso(u.empresas_acceso);
+      return {
+        ...u,
+        empresas_acceso: empresas.length ? empresas : (sessionEmpresa ? [sessionEmpresa] : [])
+      };
+    });
+    res.json({ success: true, data });
   } catch (err) {
     console.error('catalogos/usuarios', err);
     try {
       const rows = await req.db.prepare(`
         SELECT u.id, u.nombre, u.apellido, u.email, u.cargo, u.telefono, u.rol_id, u.departamento_id,
-               0 AS flag_checklist, 0 AS flag_flota, 0 AS flag_ssgg, 0 AS flag_camion_pluma, 0 AS flag_aprobador_salida,
+               0 AS flag_checklist, 0 AS flag_flota, 0 AS flag_ssgg, 0 AS flag_camion_pluma, 0 AS flag_aprobador_salida, 0 AS flag_chofer,
                r.nombre AS rol, NULL AS departamento
         FROM usuarios u
         LEFT JOIN roles r ON r.id = u.rol_id
         WHERE u.activo = 1 OR u.activo IS NULL
         ORDER BY u.nombre, u.apellido
       `).all();
-      res.json({ success: true, data: rows, warning: err.message });
+      const { attachRolesToUserList } = require('../services/usuario-roles');
+      const data = await attachRolesToUserList(req.db, rows);
+      res.json({ success: true, data, warning: err.message });
     } catch (err2) {
       res.status(500).json({ success: false, message: err2.message || err.message || 'Error usuarios', data: [] });
     }

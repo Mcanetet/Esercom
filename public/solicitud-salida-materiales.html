@@ -6,10 +6,12 @@
   <title>Solicitud de Salida Materiales - ESERCOM</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <link href="/css/app.css?v=resp2" rel="stylesheet">
+  <link href="/css/app.css?v=toast1" rel="stylesheet">
 </head>
-<body>
-  <script src="/js/auth.js?v=pages1"></script>
+<body class="mat-page">
+  <script src="/js/auth.js?v=notif2"></script>
+  <script src="/js/ui.js?v=mat5"></script>
+  <script src="/js/mat-solicitudes.js?v=guias1"></script>
   <script>
     const user = renderShell(
       '/solicitud-salida-materiales.html',
@@ -17,11 +19,79 @@
       'Gestión de entregas desde bodega o directo proveedor'
     );
 
-    let cecos = [];
-    let bodegas = [];
-    let estados = [];
-    let lineItems = [];
-    let searchTimer = null;
+    let cecos = [], bodegas = [], estados = [], lineItems = [], allRows = [], bodegueros = [];
+    let searchTimer = null, listPage = 1, permisosEsp = {}, selectedCecoId = null, editingId = null;
+    const PAGE_SIZE = 10;
+    const DEFAULT_BODEGAS = [
+      'Bodega Conchalí',
+      'Bodega Mersan',
+      'Bodega San Bernardo',
+      'Bodega Quilicura',
+      'Bodega Lampa'
+    ];
+
+    function bodegaOptionsHtml() {
+      const names = [...new Set([
+        ...bodegas.map((b) => b.nombre).filter(Boolean),
+        ...DEFAULT_BODEGAS
+      ])];
+      return names.map((n) => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
+    }
+
+    function escapeHtml(s) {
+      return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function cecoLabel(c) {
+      return `${c.codigo || ''} — ${c.nombre || ''}`.trim();
+    }
+
+    function filterCecos(q) {
+      const s = String(q || '').trim().toLowerCase();
+      if (!s) return cecos.slice(0, 40);
+      return cecos.filter((c) => {
+        const hay = `${c.codigo || ''} ${c.nombre || ''} ${c.descripcion || ''} ${c.jefe_proyecto || ''}`.toLowerCase();
+        return hay.includes(s);
+      }).slice(0, 40);
+    }
+
+    function applyCeco(c) {
+      if (!c) {
+        selectedCecoId = null;
+        document.getElementById('ceco_id').value = '';
+        document.getElementById('ceco_search').value = '';
+        document.getElementById('numero_proyecto').value = '';
+        document.getElementById('jefe_proyecto').value = '';
+        return;
+      }
+      selectedCecoId = Number(c.id);
+      document.getElementById('ceco_id').value = String(c.id);
+      document.getElementById('ceco_search').value = cecoLabel(c);
+      // Proyecto = nombre CECO (como en Softland); jefe auto
+      document.getElementById('numero_proyecto').value = c.nombre || c.codigo || '';
+      document.getElementById('jefe_proyecto').value = c.jefe_proyecto || '—';
+      document.getElementById('cecoResults').style.display = 'none';
+    }
+
+    function esAprobador() {
+      return MatSolicitudes.esAprobador(Auth.getUser() || user, permisosEsp);
+    }
+
+    function esEspecial() {
+      return MatSolicitudes.esEspecial(Auth.getUser() || user, permisosEsp);
+    }
+
+    function puedeAnular(r) {
+      const current = Auth.getUser() || user;
+      const propia = Number(r.solicitante_id) === Number(current?.id);
+      const eid = Number(r.estado_id);
+      if (eid === 6 || eid === 7 || eid === 8) return false;
+      return esEspecial() || (propia && eid === 1);
+    }
+
+    function rowActions(r) {
+      return MatSolicitudes.rowActionsHtml(r, { user: Auth.getUser() || user, permisos: permisosEsp });
+    }
 
     async function boot() {
       const content = document.getElementById('app-content');
@@ -31,174 +101,602 @@
           Auth.api('/api/catalogos/cecos'),
           Auth.api('/api/catalogos/bodegas'),
           Auth.api('/api/catalogos/estados'),
-          Auth.api('/api/solicitudes')
+          Auth.api('/api/solicitudes?limit=2000')
         ]);
-        cecos = c.data;
-        bodegas = b.data;
-        estados = e.data;
-        renderPage(list.data);
+        try {
+          const pe = await Auth.api('/api/modulos/config/permisos-especiales/mios');
+          permisosEsp = pe.data?.permisos || {};
+        } catch (_) { permisosEsp = {}; }
+        try {
+          const bu = await Auth.api('/api/catalogos/usuarios?flag=aprobador_salida');
+          // Preferimos lista amplia de usuarios activos para bodeguero
+          const allU = await Auth.api('/api/catalogos/usuarios');
+          bodegueros = (allU.data || []).filter((u) => {
+            const cargo = String(u.cargo || '').toLowerCase();
+            const rol = String(u.rol || '').toLowerCase();
+            return cargo.includes('bodega') || rol.includes('bodega') || u.flag_aprobador_salida;
+          });
+          if (!bodegueros.length) bodegueros = allU.data || bu.data || [];
+        } catch (_) { bodegueros = []; }
+        cecos = c.data; bodegas = b.data; estados = e.data;
+        allRows = list.data || [];
+        renderPage(allRows);
       } catch (err) {
-        content.innerHTML = `<div class="alert alert-error">${err.message}</div>`;
+        const msg = String(err.message || err);
+        const looksHtml = /<!doctype|<html/i.test(msg) || /Unexpected token/i.test(msg);
+        content.innerHTML = `<div class="alert alert-error">
+          <strong>No se pudieron cargar las solicitudes.</strong><br>
+          ${looksHtml
+            ? 'El servidor devolvió una página en lugar de datos (posible caché o sesión). Cierra sesión, vuelve a entrar y recarga con Ctrl+F5.'
+            : msg}
+          <div style="margin-top:0.75rem">
+            <button type="button" class="btn btn-primary btn-sm" id="btnRetryMat"><i class="fas fa-redo"></i> Reintentar</button>
+          </div>
+        </div>`;
+        document.getElementById('btnRetryMat')?.addEventListener('click', () => boot());
       }
     }
 
+    function stats(rows) {
+      const activas = rows.filter((r) => !/cerrad|entregad|anulad|rechazad/i.test(r.estado || '')).length;
+      const bodega = rows.filter((r) => r.ubicacion_entrega !== 'directo-proveedor').length;
+      const prov = rows.length - bodega;
+      return { total: rows.length, activas, bodega, prov };
+    }
+
+    function renderPagination(total, page) {
+      const pages = Math.ceil(total / PAGE_SIZE) || 1;
+      if (pages <= 1) return '';
+      const start = (page - 1) * PAGE_SIZE + 1;
+      const end = Math.min(page * PAGE_SIZE, total);
+      return `
+        <div class="pager">
+          <span class="pager-info">${start}–${end} de ${total}</span>
+          <div class="pager-btns">
+            <button type="button" class="btn btn-outline btn-sm" id="matPrev" ${page <= 1 ? 'disabled' : ''}><i class="fas fa-chevron-left"></i></button>
+            <span class="pager-info">Pág. ${page} / ${pages}</span>
+            <button type="button" class="btn btn-outline btn-sm" id="matNext" ${page >= pages ? 'disabled' : ''}><i class="fas fa-chevron-right"></i></button>
+          </div>
+        </div>`;
+    }
+
+    function publicUploadUrl(ruta) {
+      if (!ruta) return '';
+      let s = String(ruta).trim();
+      if (!s) return '';
+      if (/^https?:\/\//i.test(s)) return s;
+      s = s.replace(/^\.\.\//, '').replace(/^\/+/, '');
+      // Si viene como antiguo/uploads/... (legado), normalizar a /uploads/...
+      if (s.startsWith('antiguo/uploads/')) s = s.slice('antiguo/'.length);
+      return '/' + s;
+    }
+
+    function parseGuiasProveedor(raw) {
+      if (!raw) return [];
+      try {
+        const v = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        return Array.isArray(v) ? v : [];
+      } catch (_) {
+        return [];
+      }
+    }
+
+    /** Celda Adjuntos: PDFs proveedor + Softland (número y/o archivo), como en PHP. */
+    function renderAdjuntosCell(r) {
+      const parts = [];
+      const guias = parseGuiasProveedor(r.guias_proveedor);
+      guias.forEach((g, i) => {
+        const href = publicUploadUrl(g.ruta || g.url || g.path || '');
+        if (!href) return;
+        const nombre = g.nombre_original || g.nombre || `Guía ${i + 1}`;
+        const ext = String(nombre).split('.').pop().toLowerCase();
+        const icon = ext === 'pdf' ? 'fa-file-pdf' : 'fa-file-image';
+        parts.push(`<a href="${escapeHtml(href)}" target="_blank" rel="noopener" title="${escapeHtml(nombre)}" style="color:var(--accent);margin-right:.35rem"><i class="fas ${icon}"></i></a>`);
+      });
+      const archProv = publicUploadUrl(r.guia_proveedor_archivo);
+      if (archProv && !guias.length) {
+        parts.push(`<a href="${escapeHtml(archProv)}" target="_blank" rel="noopener" title="Guía proveedor" style="color:var(--accent);margin-right:.35rem"><i class="fas fa-file-pdf"></i></a>`);
+      }
+      const adjSoft = publicUploadUrl(r.guia_softland_adjunto);
+      if (adjSoft) {
+        parts.push(`<a href="${escapeHtml(adjSoft)}" target="_blank" rel="noopener" title="Adjunto Softland" style="color:#059669;margin-right:.35rem"><i class="fas fa-file-invoice"></i></a>`);
+      }
+      const nro = String(r.numero_guia_softland || r.guia_proveedor_numero || '').trim();
+      if (nro) {
+        parts.push(`<span class="badge" style="background:#059669" title="Guía Softland">${escapeHtml(nro)}</span>`);
+      }
+      if (!parts.length) return '<span style="color:var(--muted)">—</span>';
+      return `<div style="display:flex;flex-wrap:wrap;align-items:center;gap:.25rem">${parts.join('')}</div>`;
+    }
+
+    function renderList(rows) {
+      if (!rows.length) return '<div class="empty">No hay solicitudes</div>';
+      const slice = rows.slice((listPage - 1) * PAGE_SIZE, listPage * PAGE_SIZE);
+      return `
+        <div class="table-wrap mat-table-wrap">
+        <table class="data mat-table">
+          <thead>
+            <tr>
+              <th>Código</th><th>Proyecto</th><th>CECO</th><th>Solicitante</th><th>Jefe proy.</th>
+              <th>Fecha</th><th>Estado</th><th>Bodega</th><th>Bodeguero</th><th>Guías / Adjuntos</th><th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${slice.map((r) => `
+              <tr>
+                <td><strong>${escapeHtml(r.codigo)}</strong></td>
+                <td>${escapeHtml(r.numero_proyecto || '—')}</td>
+                <td>${escapeHtml(r.ceco_codigo || '—')}</td>
+                <td>${escapeHtml(r.solicitante || '—')}</td>
+                <td>${escapeHtml(r.jefe_proyecto || '—')}</td>
+                <td>${formatDate(r.fecha_solicitud)}</td>
+                <td><span class="badge" style="background:${r.estado_color || '#64748b'}">${escapeHtml(r.estado || '—')}</span></td>
+                <td>${r.bodega_nombre ? `<span class="badge" style="background:#0369a1">${escapeHtml(r.bodega_nombre)}</span>` : '—'}</td>
+                <td>${escapeHtml(r.bodeguero || 'Sin asignar')}</td>
+                <td>${renderAdjuntosCell(r)}</td>
+                <td>${rowActions(r)}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+        </div>
+        ${renderPagination(rows.length, listPage)}`;
+    }
+
     function renderPage(solicitudes) {
+      const s = stats(solicitudes);
       const content = document.getElementById('app-content');
       content.innerHTML = `
         <div id="flash"></div>
+        <div class="mat-stats">
+          <div class="mat-stat"><b>${s.total}</b><span>Total</span></div>
+          <div class="mat-stat"><b>${s.activas}</b><span>Activas</span></div>
+          <div class="mat-stat"><b>${s.bodega}</b><span>Bodega</span></div>
+          <div class="mat-stat"><b>${s.prov}</b><span>Proveedor</span></div>
+        </div>
 
-        <div class="card">
-          <div class="card-header">
-            <h2><i class="fas fa-plus-circle" style="color:var(--accent);margin-right:.4rem"></i> Nueva solicitud</h2>
+        <div class="card mat-card-toggle" id="matFormCard">
+          <div class="card-header" id="matFormHeader">
+            <h2 id="matFormTitle"><i class="fas fa-plus-circle" style="color:var(--accent)"></i> Nueva solicitud <i class="fas fa-chevron-down"></i></h2>
           </div>
           <div class="card-body">
             <form id="solicitudForm">
+              <p class="mat-hint"><i class="fas fa-info-circle"></i> Al buscar y elegir un CECO, el proyecto y el jefe se completan solos. Complete también la guía de despacho (conductor, RUT, patente y dirección).</p>
               <div class="form-row cols-3">
-                <div class="form-group">
-                  <label>Número de proyecto *</label>
-                  <input type="text" id="numero_proyecto" required placeholder="PRY-2026-001">
+                <div class="form-group" style="position:relative">
+                  <label>Centro de costo (CECO) *</label>
+                  <input type="search" id="ceco_search" placeholder="Escribe código o nombre para buscar…" autocomplete="off" required>
+                  <input type="hidden" id="ceco_id" required>
+                  <div id="cecoResults" class="material-search-results mat-ceco-results" style="display:none"></div>
                 </div>
                 <div class="form-group">
-                  <label>CECO *</label>
-                  <select id="ceco_id" required>
-                    <option value="">Seleccione...</option>
-                    ${cecos.map((c) => `<option value="${c.id}">${c.codigo} — ${c.nombre}</option>`).join('')}
-                  </select>
+                  <label>Proyecto</label>
+                  <input type="text" id="numero_proyecto" readonly class="mat-readonly" placeholder="Se completa al elegir CECO" required>
                 </div>
                 <div class="form-group">
-                  <label>Fecha requerida</label>
-                  <input type="date" id="fecha_requerida">
+                  <label>Jefe de proyecto</label>
+                  <input type="text" id="jefe_proyecto" readonly class="mat-readonly" placeholder="Se completa al elegir CECO">
                 </div>
               </div>
               <div class="form-row cols-3">
-                <div class="form-group">
-                  <label>Ubicación de entrega</label>
+                <div class="form-group"><label>Fecha requerida</label><input type="date" id="fecha_requerida"></div>
+                <div class="form-group"><label>Ubicación de entrega *</label>
                   <select id="ubicacion_entrega">
                     <option value="bodega">Bodega</option>
                     <option value="directo-proveedor">Directo proveedor</option>
                   </select>
                 </div>
-                <div class="form-group">
-                  <label>Bodega</label>
+                <div class="form-group" id="wrapBodega"><label>Bodega *</label>
                   <select id="bodega_nombre">
-                    <option value="">Seleccione...</option>
-                    ${bodegas.map((b) => `<option value="${b.nombre}">${b.nombre}</option>`).join('')}
+                    <option value="">Seleccione bodega…</option>
+                    ${bodegaOptionsHtml()}
                   </select>
                 </div>
-                <div class="form-group">
-                  <label>Quién retira</label>
-                  <input type="text" id="quien_retira" placeholder="Nombre">
-                </div>
               </div>
-              <div class="form-row">
-                <div class="form-group">
-                  <label>Quién usa</label>
-                  <input type="text" id="quien_usa" placeholder="Cuadrilla / área">
+              <div class="form-row cols-2">
+                <div class="form-group"><label>Quién retira</label><input type="text" id="quien_retira" placeholder="Nombre"></div>
+                <div class="form-group"><label>Quién usa</label><input type="text" id="quien_usa" placeholder="Cuadrilla / área"></div>
+              </div>
+
+              <div class="mat-despacho" id="matDespacho">
+                <h3 class="mat-despacho-title"><i class="fas fa-truck"></i> Guía de despacho / salida</h3>
+                <p class="mat-hint">Conductor, RUT, patente y dirección con comuna (necesarios para emitir la guía).</p>
+                <div class="form-row cols-2">
+                  <div class="form-group">
+                    <label>Conductor *</label>
+                    <input type="text" id="despacho_conductor" placeholder="Nombre del conductor" minlength="2" maxlength="200" autocomplete="name">
+                  </div>
+                  <div class="form-group">
+                    <label>RUT *</label>
+                    <input type="text" id="despacho_rut" placeholder="12.345.678-9" maxlength="20" autocomplete="off">
+                  </div>
                 </div>
-                <div class="form-group">
-                  <label>Observaciones</label>
-                  <input type="text" id="observaciones" placeholder="Opcional">
+                <div class="form-row cols-2">
+                  <div class="form-group">
+                    <label>Patente *</label>
+                    <input type="text" id="despacho_patente" placeholder="ABCD12" maxlength="12" style="text-transform:uppercase" autocomplete="off">
+                  </div>
+                  <div class="form-group">
+                    <label>Dirección y comuna *</label>
+                    <input type="text" id="despacho_direccion" placeholder="Calle, número, comuna" maxlength="255" autocomplete="street-address">
+                  </div>
                 </div>
               </div>
 
+              <div class="form-group"><label>Observaciones</label><input type="text" id="observaciones" placeholder="Opcional"></div>
               <div class="form-group" style="position:relative">
-                <label>Buscar material</label>
+                <label><i class="fas fa-search"></i> Buscar material</label>
                 <input type="text" id="material_q" placeholder="Código o nombre..." autocomplete="off">
                 <div id="materialResults" class="material-search-results" style="display:none"></div>
               </div>
-
               <div class="table-wrap" style="margin-bottom:1rem">
                 <table class="data" id="lineTable">
-                  <thead>
-                    <tr>
-                      <th>Código</th>
-                      <th>Material</th>
-                      <th>Cantidad</th>
-                      <th>Unidad</th>
-                      <th>Precio</th>
-                      <th>Subtotal</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody id="lineBody">
-                    <tr><td colspan="7" class="empty">Agregue materiales con el buscador</td></tr>
-                  </tbody>
+                  <thead><tr><th>Código</th><th>Material</th><th>Cant.</th><th>Unidad</th><th>Precio</th><th>Subtotal</th><th></th></tr></thead>
+                  <tbody id="lineBody"><tr><td colspan="7" class="empty">Agregue materiales con el buscador</td></tr></tbody>
                 </table>
               </div>
-
-              <button type="submit" class="btn btn-primary" id="btnCrear">
-                <i class="fas fa-save"></i> Crear solicitud
-              </button>
+              <button type="submit" class="btn btn-primary" id="btnCrear"><i class="fas fa-save"></i> <span id="btnCrearLabel">Crear solicitud</span></button>
+              <button type="button" class="btn btn-outline" id="btnCancelEdit" hidden><i class="fas fa-times"></i> Cancelar edición</button>
             </form>
           </div>
         </div>
 
         <div class="card">
           <div class="card-header">
-            <h2><i class="fas fa-list" style="color:var(--accent);margin-right:.4rem"></i> Solicitudes</h2>
-          </div>
-          <div class="card-body">
-            <div class="toolbar">
+            <h2><i class="fas fa-list" style="color:var(--accent)"></i> Solicitudes</h2>
+            <div class="ck-toolbar" style="flex-wrap:wrap;gap:0.4rem">
               <input type="search" id="filterQ" placeholder="Buscar código / proyecto / solicitante">
-              <select id="filterEstado">
-                <option value="">Todos los estados</option>
+              <select id="filterEstado"><option value="">Todos los estados</option>
                 ${estados.map((e) => `<option value="${e.id}">${e.nombre}</option>`).join('')}
               </select>
+              <input type="date" id="filterDesde" title="Fecha desde (Excel usa este rango; por defecto último año)">
+              <input type="date" id="filterHasta" title="Fecha hasta">
               <button class="btn btn-secondary btn-sm" type="button" id="btnFiltrar"><i class="fas fa-filter"></i> Filtrar</button>
+              <button class="btn btn-primary btn-sm" type="button" id="btnExcelMat" title="Descargar una fila por material con todos los campos">
+                <i class="fas fa-file-excel"></i> Excel materiales
+              </button>
             </div>
-            <div class="table-wrap" id="listWrap">
-              ${renderList(solicitudes)}
+          </div>
+          <div class="card-body">
+            <div id="listWrap">${renderList(solicitudes)}</div>
+          </div>
+        </div>
+
+        <div class="cfg-modal" id="modalBodeguero" aria-hidden="true">
+          <div class="cfg-modal-backdrop" data-close-bod></div>
+          <div class="cfg-modal-panel cfg-modal-sm" role="dialog">
+            <div class="cfg-modal-head">
+              <div><h2>Asignar bodeguero</h2><p>Pasa la solicitud a <strong>En Entrega</strong></p></div>
+              <button type="button" class="cfg-modal-x" data-close-bod>&times;</button>
+            </div>
+            <div class="cfg-modal-body">
+              <input type="hidden" id="bodSolicitudId">
+              <div class="form-group">
+                <label>Bodeguero *</label>
+                <select id="bodUsuarioId">
+                  <option value="">Seleccione…</option>
+                  ${bodegueros.map((u) => `<option value="${u.id}">${escapeHtml((u.nombre || '') + ' ' + (u.apellido || ''))}${u.cargo ? ' — ' + escapeHtml(u.cargo) : ''}</option>`).join('')}
+                </select>
+              </div>
+              <div class="cfg-modal-footer">
+                <button type="button" class="btn btn-outline" data-close-bod>Cancelar</button>
+                <button type="button" class="btn btn-primary" id="btnConfirmBod"><i class="fas fa-user-tag"></i> Asignar</button>
+              </div>
             </div>
           </div>
         </div>
-      `;
 
+        <div class="cfg-modal" id="modalGuia" aria-hidden="true">
+          <div class="cfg-modal-backdrop" data-close-guia></div>
+          <div class="cfg-modal-panel cfg-modal-sm" role="dialog">
+            <div class="cfg-modal-head">
+              <div><h2>Guía Softland</h2><p>Registra el N° y cierra la solicitud</p></div>
+              <button type="button" class="cfg-modal-x" data-close-guia>&times;</button>
+            </div>
+            <div class="cfg-modal-body">
+              <input type="hidden" id="guiaSolicitudId">
+              <div class="form-group">
+                <label>Número de guía Softland *</label>
+                <input type="text" id="guiaNumero" placeholder="Ej: GS-2026-001" autocomplete="off">
+              </div>
+              <div class="cfg-modal-footer">
+                <button type="button" class="btn btn-outline" data-close-guia>Cancelar</button>
+                <button type="button" class="btn btn-primary" id="btnConfirmGuia"><i class="fas fa-file-invoice"></i> Registrar y cerrar</button>
+              </div>
+            </div>
+          </div>
+        </div>`;
+
+      document.getElementById('matFormHeader').onclick = () => {
+        if (!editingId) document.getElementById('matFormCard').classList.toggle('collapsed');
+      };
       wireForm();
+      wireListNav();
+      wireModals();
+      ensureDefaultDates();
       document.getElementById('btnFiltrar').addEventListener('click', refreshList);
+      document.getElementById('filterQ').addEventListener('keydown', (e) => { if (e.key === 'Enter') refreshList(); });
+      document.getElementById('btnExcelMat')?.addEventListener('click', descargarExcel);
+      document.getElementById('btnCancelEdit').onclick = () => resetEditMode();
     }
 
-    function renderList(rows) {
-      if (!rows.length) return '<div class="empty">No hay solicitudes</div>';
-      return `
-        <table class="data">
-          <thead>
-            <tr>
-              <th>Código</th>
-              <th>Proyecto</th>
-              <th>CECO</th>
-              <th>Solicitante</th>
-              <th>Entrega</th>
-              <th>Fecha</th>
-              <th>Estado</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rows.map((r) => `
-              <tr>
-                <td><strong>${r.codigo}</strong></td>
-                <td>${r.numero_proyecto || '—'}</td>
-                <td>${r.ceco_codigo || '—'}</td>
-                <td>${r.solicitante}</td>
-                <td>${r.ubicacion_entrega === 'directo-proveedor' ? 'Proveedor' : 'Bodega'}</td>
-                <td>${formatDate(r.fecha_solicitud)}</td>
-                <td><span class="badge" style="background:${r.estado_color}">${r.estado}</span></td>
-                <td><a class="btn btn-outline btn-sm" href="/ver-solicitud.html?id=${r.id}">Ver</a></td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      `;
+    function currentFilters() {
+      return {
+        q: document.getElementById('filterQ')?.value?.trim() || '',
+        estado_id: document.getElementById('filterEstado')?.value || '',
+        fecha_desde: document.getElementById('filterDesde')?.value || '',
+        fecha_hasta: document.getElementById('filterHasta')?.value || ''
+      };
+    }
+
+    function ymdLocal(d) {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    }
+
+    function ensureDefaultDates() {
+      const desde = document.getElementById('filterDesde');
+      const hasta = document.getElementById('filterHasta');
+      if (!desde || !hasta) return;
+      if (!hasta.value) {
+        hasta.value = ymdLocal(new Date());
+      }
+      if (!desde.value) {
+        const d = new Date();
+        d.setFullYear(d.getFullYear() - 1);
+        desde.value = ymdLocal(d);
+      }
+    }
+
+    async function descargarExcel() {
+      ensureDefaultDates();
+      const f = currentFilters();
+      if (!f.fecha_desde || !f.fecha_hasta) {
+        return flash('Indica fecha desde y hasta para el Excel de materiales', true);
+      }
+      if (f.fecha_desde > f.fecha_hasta) {
+        return flash('La fecha desde no puede ser mayor que la fecha hasta', true);
+      }
+      const btn = document.getElementById('btnExcelMat');
+      const prev = btn?.innerHTML;
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generando…';
+      }
+      try {
+        const params = new URLSearchParams();
+        if (f.q) params.set('q', f.q);
+        if (f.estado_id) params.set('estado_id', f.estado_id);
+        params.set('fecha_desde', f.fecha_desde);
+        params.set('fecha_hasta', f.fecha_hasta);
+        const token = Auth.getToken();
+        const res = await fetch('/api/solicitudes/reporte-excel?' + params.toString(), {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'X-Auth-Token': token || ''
+          },
+          cache: 'no-store'
+        });
+        if (!res.ok) {
+          let msg = 'No se pudo generar el Excel';
+          try {
+            const err = JSON.parse(await res.text());
+            if (err.message) msg = err.message;
+          } catch (_) { /* ignore */ }
+          throw new Error(msg);
+        }
+        const blob = await res.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `reporte_materiales_${f.fecha_desde}_${f.fecha_hasta}.xlsx`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(a.href);
+        flash('Excel de materiales descargado (revisa fechas si falta data)');
+      } catch (err) {
+        flash(err.message, true);
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = prev || '<i class="fas fa-file-excel"></i> Excel materiales';
+        }
+      }
+    }
+
+    function openModal(id) {
+      const el = document.getElementById(id);
+      el.classList.add('is-open');
+      el.setAttribute('aria-hidden', 'false');
+      document.body.classList.add('modal-open');
+    }
+    function closeModal(id) {
+      const el = document.getElementById(id);
+      el.classList.remove('is-open');
+      el.setAttribute('aria-hidden', 'true');
+      if (!document.querySelector('.cfg-modal.is-open')) document.body.classList.remove('modal-open');
+    }
+
+    function wireModals() {
+      document.querySelectorAll('[data-close-bod]').forEach((el) => { el.onclick = () => closeModal('modalBodeguero'); });
+      document.querySelectorAll('[data-close-guia]').forEach((el) => { el.onclick = () => closeModal('modalGuia'); });
+      document.getElementById('btnConfirmBod').onclick = async () => {
+        const id = document.getElementById('bodSolicitudId').value;
+        const bodeguero_id = Number(document.getElementById('bodUsuarioId').value);
+        if (!bodeguero_id) return flash('Seleccione bodeguero', true);
+        try {
+          await Auth.api('/api/solicitudes/' + id + '/asignar-bodeguero', {
+            method: 'POST', body: JSON.stringify({ bodeguero_id })
+          });
+          flash('Bodeguero asignado');
+          closeModal('modalBodeguero');
+          await refreshList();
+        } catch (err) { flash(err.message, true); }
+      };
+      document.getElementById('btnConfirmGuia').onclick = async () => {
+        const id = document.getElementById('guiaSolicitudId').value;
+        const numero_guia_softland = document.getElementById('guiaNumero').value.trim();
+        if (!numero_guia_softland) return flash('Ingrese N° de guía', true);
+        try {
+          await Auth.api('/api/solicitudes/' + id + '/guia-softland', {
+            method: 'POST', body: JSON.stringify({ numero_guia_softland })
+          });
+          flash('Guía registrada y solicitud cerrada');
+          closeModal('modalGuia');
+          await refreshList();
+        } catch (err) { flash(err.message, true); }
+      };
+    }
+
+    function resetEditMode() {
+      editingId = null;
+      lineItems = [];
+      selectedCecoId = null;
+      const form = document.getElementById('solicitudForm');
+      if (form) form.reset();
+      document.getElementById('ceco_id').value = '';
+      document.getElementById('btnCrearLabel').textContent = 'Crear solicitud';
+      document.getElementById('matFormTitle').innerHTML = '<i class="fas fa-plus-circle" style="color:var(--accent)"></i> Nueva solicitud <i class="fas fa-chevron-down"></i>';
+      document.getElementById('btnCancelEdit').hidden = true;
+      renderLines();
+    }
+
+    async function loadForEdit(id) {
+      try {
+        const { data: s } = await Auth.api('/api/solicitudes/' + id);
+        editingId = id;
+        const card = document.getElementById('matFormCard');
+        card.classList.remove('collapsed');
+        document.getElementById('matFormTitle').innerHTML = `<i class="fas fa-edit" style="color:var(--accent)"></i> Editar ${escapeHtml(s.codigo)} <i class="fas fa-chevron-down"></i>`;
+        document.getElementById('btnCrearLabel').textContent = 'Guardar cambios';
+        document.getElementById('btnCancelEdit').hidden = false;
+
+        const ceco = cecos.find((c) => Number(c.id) === Number(s.ceco_id));
+        if (ceco) applyCeco(ceco);
+        else {
+          selectedCecoId = Number(s.ceco_id);
+          document.getElementById('ceco_id').value = String(s.ceco_id || '');
+          document.getElementById('ceco_search').value = `${s.ceco_codigo || ''} — ${s.ceco_nombre || ''}`.trim();
+          document.getElementById('numero_proyecto').value = s.numero_proyecto || '';
+          document.getElementById('jefe_proyecto').value = s.jefe_proyecto || '';
+        }
+        document.getElementById('numero_proyecto').value = s.numero_proyecto || document.getElementById('numero_proyecto').value;
+        document.getElementById('fecha_requerida').value = (s.fecha_requerida || '').slice(0, 10);
+        document.getElementById('ubicacion_entrega').value = s.ubicacion_entrega === 'directo-proveedor' ? 'directo-proveedor' : 'bodega';
+        document.getElementById('ubicacion_entrega').dispatchEvent(new Event('change'));
+        if (s.bodega_nombre) document.getElementById('bodega_nombre').value = s.bodega_nombre;
+        document.getElementById('quien_retira').value = s.quien_retira || '';
+        document.getElementById('quien_usa').value = s.quien_usa || '';
+        document.getElementById('observaciones').value = s.observaciones || '';
+        document.getElementById('despacho_conductor').value = s.despacho_conductor || '';
+        document.getElementById('despacho_rut').value = s.despacho_rut || '';
+        document.getElementById('despacho_patente').value = s.despacho_patente || '';
+        document.getElementById('despacho_direccion').value = s.despacho_direccion || '';
+        lineItems = (s.detalle || []).map((d) => ({
+          material_id: d.material_id,
+          codigo: d.material_codigo || '',
+          nombre: d.material_nombre || d.descripcion || '',
+          unidad: d.unidad || 'UN',
+          precio: Number(d.precio_unitario) || 0,
+          cantidad: Number(d.cantidad) || 1
+        }));
+        renderLines();
+        card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        flash('Modo edición: revise y pulse Guardar cambios');
+      } catch (err) {
+        flash(err.message, true);
+      }
+    }
+
+    function wireListNav() {
+      document.getElementById('matPrev')?.addEventListener('click', () => { if (listPage > 1) { listPage--; paintList(); } });
+      document.getElementById('matNext')?.addEventListener('click', () => {
+        const pages = Math.ceil(allRows.length / PAGE_SIZE);
+        if (listPage < pages) { listPage++; paintList(); }
+      });
+      wireRowActions();
+    }
+
+    function wireRowActions() {
+      document.querySelectorAll('#listWrap [data-act]').forEach((btn) => {
+        btn.onclick = async () => {
+          const id = Number(btn.dataset.id);
+          const act = btn.dataset.act;
+          try {
+            if (act === 'editar') {
+              await loadForEdit(id);
+              return;
+            }
+            if (act === 'aprobar') {
+              if (!confirm('¿Aprobar esta solicitud? Pasará a Asignar Bodeguero.')) return;
+              await Auth.api('/api/solicitudes/' + id + '/aprobar', { method: 'POST', body: '{}' });
+              flash('Solicitud aprobada');
+            } else if (act === 'rechazar') {
+              const comentarios = prompt('Motivo del rechazo:') || 'Rechazada';
+              await Auth.api('/api/solicitudes/' + id + '/rechazar', {
+                method: 'POST', body: JSON.stringify({ comentarios })
+              });
+              flash('Solicitud rechazada');
+            } else if (act === 'bodeguero') {
+              document.getElementById('bodSolicitudId').value = String(id);
+              document.getElementById('bodUsuarioId').value = '';
+              openModal('modalBodeguero');
+              return;
+            } else if (act === 'entregar') {
+              if (!confirm('¿Registrar entrega? Pasará a Guías Pendientes.')) return;
+              await Auth.api('/api/solicitudes/' + id + '/registrar-entrega', {
+                method: 'POST', body: JSON.stringify({ comentarios: 'Entrega registrada' })
+              });
+              flash('Entrega registrada');
+            } else if (act === 'guia') {
+              document.getElementById('guiaSolicitudId').value = String(id);
+              document.getElementById('guiaNumero').value = '';
+              openModal('modalGuia');
+              return;
+            } else if (act === 'anular') {
+              const comentarios = prompt('Motivo de anulación:') || 'Anulada';
+              if (!confirm('¿Anular esta solicitud?')) return;
+              await Auth.api('/api/solicitudes/' + id + '/anular', {
+                method: 'POST', body: JSON.stringify({ comentarios })
+              });
+              flash('Solicitud anulada');
+            } else if (act === 'reactivar') {
+              if (!confirm('¿Reactivar esta solicitud anulada?')) return;
+              await Auth.api('/api/solicitudes/' + id + '/reactivar', { method: 'POST', body: '{}' });
+              flash('Solicitud reactivada');
+            }
+            await refreshList();
+          } catch (err) {
+            flash(err.message, true);
+          }
+        };
+      });
+    }
+
+    function paintList() {
+      document.getElementById('listWrap').innerHTML = renderList(allRows);
+      wireListNav();
     }
 
     async function refreshList() {
-      const q = document.getElementById('filterQ').value.trim();
-      const estado_id = document.getElementById('filterEstado').value;
+      const f = currentFilters();
+      if (f.fecha_desde && f.fecha_hasta && f.fecha_desde > f.fecha_hasta) {
+        return flash('La fecha desde no puede ser mayor que la fecha hasta', true);
+      }
       const params = new URLSearchParams();
-      if (q) params.set('q', q);
-      if (estado_id) params.set('estado_id', estado_id);
-      const { data } = await Auth.api('/api/solicitudes?' + params.toString());
-      document.getElementById('listWrap').innerHTML = renderList(data);
+      if (f.q) params.set('q', f.q);
+      if (f.estado_id) params.set('estado_id', f.estado_id);
+      if (f.fecha_desde) params.set('fecha_desde', f.fecha_desde);
+      if (f.fecha_hasta) params.set('fecha_hasta', f.fecha_hasta);
+      const { data } = await Auth.api('/api/solicitudes?' + params.toString() + (params.toString() ? '&' : '') + 'limit=2000');
+      allRows = data || [];
+      listPage = 1;
+      paintList();
+      const s = stats(allRows);
+      document.querySelectorAll('.mat-stat b').forEach((el, i) => {
+        el.textContent = [s.total, s.activas, s.bodega, s.prov][i];
+      });
     }
 
     function renderLines() {
@@ -209,124 +707,162 @@
       }
       body.innerHTML = lineItems.map((item, idx) => `
         <tr>
-          <td>${item.codigo}</td>
-          <td>${item.nombre}</td>
+          <td>${item.codigo}</td><td>${item.nombre}</td>
           <td><input type="number" min="0.01" step="0.01" value="${item.cantidad}" data-idx="${idx}" class="qty-input" style="width:90px;padding:.35rem .5rem;border:1px solid var(--border);border-radius:6px"></td>
           <td>${item.unidad}</td>
-          <td>${Number(item.precio).toLocaleString('es-CL')}</td>
-          <td>${(item.cantidad * item.precio).toLocaleString('es-CL')}</td>
+          <td>$${Number(item.precio).toLocaleString('es-CL')}</td>
+          <td>$${(item.cantidad * item.precio).toLocaleString('es-CL')}</td>
           <td><button type="button" class="btn btn-danger btn-sm" data-remove="${idx}"><i class="fas fa-trash"></i></button></td>
-        </tr>
-      `).join('');
-
+        </tr>`).join('');
       body.querySelectorAll('.qty-input').forEach((el) => {
         el.addEventListener('change', (e) => {
-          const i = Number(e.target.dataset.idx);
-          lineItems[i].cantidad = Number(e.target.value) || 1;
+          lineItems[Number(e.target.dataset.idx)].cantidad = Number(e.target.value) || 1;
           renderLines();
         });
       });
       body.querySelectorAll('[data-remove]').forEach((el) => {
-        el.addEventListener('click', () => {
-          lineItems.splice(Number(el.dataset.remove), 1);
-          renderLines();
-        });
+        el.addEventListener('click', () => { lineItems.splice(Number(el.dataset.remove), 1); renderLines(); });
       });
     }
 
     function wireForm() {
       const qInput = document.getElementById('material_q');
       const results = document.getElementById('materialResults');
+      const cecoSearch = document.getElementById('ceco_search');
+      const cecoResults = document.getElementById('cecoResults');
+      const ubic = document.getElementById('ubicacion_entrega');
+
+      function toggleBodegaDespacho() {
+        const esBodega = ubic.value !== 'directo-proveedor';
+        document.getElementById('wrapBodega').style.display = esBodega ? '' : 'none';
+        document.getElementById('matDespacho').style.display = esBodega ? '' : 'none';
+        document.getElementById('bodega_nombre').required = esBodega;
+        ['despacho_conductor', 'despacho_rut', 'despacho_patente', 'despacho_direccion'].forEach((id) => {
+          const el = document.getElementById(id);
+          if (el) el.required = esBodega;
+        });
+      }
+      ubic.addEventListener('change', toggleBodegaDespacho);
+      toggleBodegaDespacho();
+
+      function renderCecoResults(list) {
+        if (!list.length) {
+          cecoResults.innerHTML = '<button type="button" disabled>Sin CECO coincidente</button>';
+        } else {
+          cecoResults.innerHTML = list.map((c) => `
+            <button type="button" data-ceco-id="${c.id}">
+              <strong>${escapeHtml(c.codigo || '')}</strong> — ${escapeHtml(c.nombre || '')}
+              ${c.jefe_proyecto ? `<small style="color:var(--muted)"> · JP: ${escapeHtml(c.jefe_proyecto)}</small>` : ''}
+            </button>`).join('');
+          cecoResults.querySelectorAll('[data-ceco-id]').forEach((btn) => {
+            btn.onclick = () => {
+              const c = cecos.find((x) => Number(x.id) === Number(btn.dataset.cecoId));
+              applyCeco(c);
+            };
+          });
+        }
+        cecoResults.style.display = 'block';
+      }
+
+      cecoSearch.addEventListener('focus', () => renderCecoResults(filterCecos(cecoSearch.value)));
+      cecoSearch.addEventListener('input', () => {
+        selectedCecoId = null;
+        document.getElementById('ceco_id').value = '';
+        renderCecoResults(filterCecos(cecoSearch.value));
+      });
 
       qInput.addEventListener('input', () => {
         clearTimeout(searchTimer);
         const q = qInput.value.trim();
-        if (q.length < 2) {
-          results.style.display = 'none';
-          return;
-        }
+        if (q.length < 2) { results.style.display = 'none'; return; }
         searchTimer = setTimeout(async () => {
           try {
             const { data } = await Auth.api('/api/catalogos/materiales?q=' + encodeURIComponent(q));
-            if (!data.length) {
-              results.innerHTML = '<button type="button" disabled>Sin resultados</button>';
-            } else {
-              results.innerHTML = data.map((m) => `
-                <button type="button" data-id="${m.id}" data-codigo="${m.codigo}" data-nombre="${m.nombre}" data-unidad="${m.unidad}" data-precio="${m.precio}">
-                  <strong>${m.codigo}</strong> — ${m.nombre} <small style="color:var(--muted)">(${m.unidad} · stock ${m.stock})</small>
-                </button>
-              `).join('');
-              results.querySelectorAll('button[data-id]').forEach((btn) => {
-                btn.addEventListener('click', () => {
-                  const id = Number(btn.dataset.id);
-                  if (lineItems.some((x) => x.material_id === id)) {
-                    flash('El material ya está en la lista', true);
-                    return;
-                  }
-                  lineItems.push({
-                    material_id: id,
-                    codigo: btn.dataset.codigo,
-                    nombre: btn.dataset.nombre,
-                    unidad: btn.dataset.unidad,
-                    precio: Number(btn.dataset.precio) || 0,
-                    cantidad: 1
-                  });
-                  qInput.value = '';
-                  results.style.display = 'none';
-                  renderLines();
-                });
+            results.innerHTML = data.length
+              ? data.map((m) => `<button type="button" data-id="${m.id}" data-codigo="${escapeHtml(m.codigo)}" data-nombre="${escapeHtml(m.nombre)}" data-unidad="${escapeHtml(m.unidad)}" data-precio="${m.precio}"><strong>${escapeHtml(m.codigo)}</strong> — ${escapeHtml(m.nombre)} <small style="color:var(--muted)">(${escapeHtml(m.unidad)})</small></button>`).join('')
+              : '<button type="button" disabled>Sin resultados</button>';
+            results.querySelectorAll('button[data-id]').forEach((btn) => {
+              btn.addEventListener('click', () => {
+                const id = Number(btn.dataset.id);
+                if (lineItems.some((x) => x.material_id === id)) return flash('Material ya en la lista', true);
+                lineItems.push({ material_id: id, codigo: btn.dataset.codigo, nombre: btn.dataset.nombre, unidad: btn.dataset.unidad, precio: Number(btn.dataset.precio) || 0, cantidad: 1 });
+                qInput.value = ''; results.style.display = 'none'; renderLines();
               });
-            }
+            });
             results.style.display = 'block';
-          } catch (err) {
-            flash(err.message, true);
-          }
+          } catch (err) { flash(err.message, true); }
         }, 250);
       });
 
       document.addEventListener('click', (e) => {
         if (!results.contains(e.target) && e.target !== qInput) results.style.display = 'none';
+        if (!cecoResults.contains(e.target) && e.target !== cecoSearch) cecoResults.style.display = 'none';
+      });
+
+      document.getElementById('despacho_patente')?.addEventListener('input', (e) => {
+        e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
       });
 
       document.getElementById('solicitudForm').addEventListener('submit', async (e) => {
         e.preventDefault();
-        if (!lineItems.length) {
-          flash('Agregue al menos un material', true);
-          return;
+        if (!lineItems.length) return flash('Agregue al menos un material', true);
+        const cecoId = Number(document.getElementById('ceco_id').value || selectedCecoId);
+        if (!cecoId) return flash('Seleccione un CECO de la lista (escriba y elija)', true);
+        const esBodega = document.getElementById('ubicacion_entrega').value !== 'directo-proveedor';
+        if (esBodega && !document.getElementById('bodega_nombre').value) {
+          return flash('Seleccione la bodega de entrega', true);
         }
+        if (esBodega) {
+          const cond = document.getElementById('despacho_conductor').value.trim();
+          const rut = document.getElementById('despacho_rut').value.trim();
+          const pat = document.getElementById('despacho_patente').value.trim();
+          const dir = document.getElementById('despacho_direccion').value.trim();
+          if (!cond || !rut || !pat || !dir) {
+            return flash('Complete conductor, RUT, patente y dirección para la guía de salida', true);
+          }
+        }
+        const ceco = cecos.find((c) => Number(c.id) === cecoId);
         const btn = document.getElementById('btnCrear');
         btn.disabled = true;
+        const payload = {
+          numero_proyecto: document.getElementById('numero_proyecto').value.trim(),
+          ceco_id: cecoId,
+          jefe_proyecto_id: ceco?.jefe_proyecto_id || null,
+          fecha_requerida: document.getElementById('fecha_requerida').value || null,
+          ubicacion_entrega: document.getElementById('ubicacion_entrega').value,
+          bodega_nombre: esBodega ? (document.getElementById('bodega_nombre').value || null) : null,
+          quien_retira: document.getElementById('quien_retira').value.trim() || null,
+          quien_usa: document.getElementById('quien_usa').value.trim() || null,
+          observaciones: document.getElementById('observaciones').value.trim() || null,
+          despacho_conductor: document.getElementById('despacho_conductor').value.trim() || null,
+          despacho_rut: document.getElementById('despacho_rut').value.trim() || null,
+          despacho_patente: document.getElementById('despacho_patente').value.trim().toUpperCase() || null,
+          despacho_direccion: document.getElementById('despacho_direccion').value.trim() || null,
+          materiales: lineItems.map((i) => ({ material_id: i.material_id, cantidad: i.cantidad, unidad: i.unidad, precio_unitario: i.precio }))
+        };
         try {
-          const payload = {
-            numero_proyecto: document.getElementById('numero_proyecto').value.trim(),
-            ceco_id: Number(document.getElementById('ceco_id').value),
-            fecha_requerida: document.getElementById('fecha_requerida').value || null,
-            ubicacion_entrega: document.getElementById('ubicacion_entrega').value,
-            bodega_nombre: document.getElementById('bodega_nombre').value || null,
-            quien_retira: document.getElementById('quien_retira').value.trim() || null,
-            quien_usa: document.getElementById('quien_usa').value.trim() || null,
-            observaciones: document.getElementById('observaciones').value.trim() || null,
-            materiales: lineItems.map((i) => ({
-              material_id: i.material_id,
-              cantidad: i.cantidad,
-              unidad: i.unidad,
-              precio_unitario: i.precio
-            }))
-          };
-          const result = await Auth.api('/api/solicitudes', {
-            method: 'POST',
-            body: JSON.stringify(payload)
-          });
-          flash(`Solicitud ${result.data.codigo} creada`);
-          lineItems = [];
-          e.target.reset();
-          renderLines();
+          if (editingId) {
+            await Auth.api('/api/solicitudes/' + editingId + '/actualizar', {
+              method: 'POST', body: JSON.stringify(payload)
+            });
+            flash('Solicitud actualizada');
+            resetEditMode();
+          } else {
+            const result = await Auth.api('/api/solicitudes', {
+              method: 'POST', body: JSON.stringify(payload)
+            });
+            flash(`Solicitud ${result.data.codigo} creada`);
+            lineItems = [];
+            e.target.reset();
+            selectedCecoId = null;
+            document.getElementById('ceco_id').value = '';
+            toggleBodegaDespacho();
+            renderLines();
+            document.getElementById('matFormCard').classList.add('collapsed');
+          }
           await refreshList();
-        } catch (err) {
-          flash(err.message, true);
-        } finally {
-          btn.disabled = false;
-        }
+        } catch (err) { flash(err.message, true); }
+        finally { btn.disabled = false; }
       });
     }
 

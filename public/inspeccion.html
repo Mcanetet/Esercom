@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Inspección - ESERCOM</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <link href="/css/app.css?v=insp2" rel="stylesheet">
+</head>
+<body>
+  <script src="/js/auth.js?v=notif2"></script>
+  <script src="/js/ui.js?v=resp2"></script>
+  <script src="/js/inspeccion.js?v=insp3"></script>
+  <script>
+    const user = renderShell(
+      '/inspeccion.html',
+      '<i class="fas fa-clipboard-list"></i> Inspección',
+      'Fabricaciones, OC, piezas, plano y chat colaborativo'
+    );
+    if (user && typeof window.bootInspeccion === 'function') {
+      window.bootInspeccion(user);
+    }
+  </script>
+</body>
+</html>

@@ -6,8 +6,9 @@
 const mysql = require('mysql2/promise');
 
 function flattenParams(params) {
-  if (params.length === 1 && Array.isArray(params[0])) return params[0];
-  return params;
+  const raw = params.length === 1 && Array.isArray(params[0]) ? params[0] : params;
+  // mysql2 rechaza undefined; SQL NULL = null
+  return raw.map((v) => (v === undefined ? null : v));
 }
 
 function rewriteSql(sql) {
@@ -153,13 +154,24 @@ async function createMysqlPool(cfg) {
     charset: 'utf8mb4'
   });
 
-  // || como concatenación (compatible con queries SQLite del código)
+  // || como concatenación (compatible con queries SQLite del código).
+  // Debe aplicarse ANTES de cualquier query en esa conexión (sin fire-and-forget).
   pool.on('connection', (connection) => {
-    connection.query("SET SESSION sql_mode = CONCAT(@@sql_mode, ',PIPES_AS_CONCAT')", () => {});
+    connection.query(
+      "SET SESSION sql_mode = CONCAT(@@sql_mode, ',PIPES_AS_CONCAT')",
+      (err) => {
+        if (err) console.warn('[mysql] PIPES_AS_CONCAT:', err.message);
+      }
+    );
   });
 
-  // smoke test
+  // smoke test + forzar modo en la conexión inicial del pool
   await pool.query('SELECT 1 AS ok');
+  try {
+    await pool.query("SET SESSION sql_mode = CONCAT(@@sql_mode, ',PIPES_AS_CONCAT')");
+  } catch (err) {
+    console.warn('[mysql] sql_mode init:', err.message);
+  }
   return new MysqlDatabase(pool);
 }
 

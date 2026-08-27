@@ -7,6 +7,9 @@ const { encrypt, decrypt, maskKey } = require('../services/crypto');
 const config = require('../config');
 const {
   getConfig,
+  getApiKey,
+  getAngelModel,
+  getAngelStatus,
   syncAlerts,
   generateCecoExcel,
   chatWithAngel,
@@ -18,14 +21,25 @@ router.use(authRequired);
 
 /* ---- Estado general (cualquier usuario autenticado) ---- */
 router.get('/status', async (req, res) => {
-  const cfg = await getConfig(req.db);
+  const status = await getAngelStatus(req.db);
+  let voz = null;
+  try {
+    const { getVoiceConfig } = require('../services/angel-voice');
+    voz = await getVoiceConfig(req.db);
+  } catch (_) { /* ignore */ }
   res.json({
     success: true,
     data: {
-      activo: !!(cfg && cfg.activo && cfg.api_key_enc),
-      model: cfg?.model || 'gpt-4o-mini',
-      reporte_semanal: !!(cfg && cfg.reporte_semanal),
-      hint: cfg?.api_key_hint || null
+      activo: status.activo,
+      model: status.model,
+      reporte_semanal: status.reporte_semanal,
+      hint: status.hint,
+      source: status.source,
+      voz: voz ? {
+        voz_activa: voz.voz_activa,
+        voz_autoplay: voz.voz_autoplay,
+        voz_tts_voice: voz.voz_tts_voice
+      } : null
     }
   });
 });
@@ -40,19 +54,35 @@ router.get('/contexto', async (req, res) => {
 /* ---- Chat Angel IA ---- */
 router.get('/chat/historial', async (req, res) => {
   const rows = (await req.db.prepare(`
-    SELECT id, rol, contenido, fecha_creacion
+    SELECT id, rol, contenido, meta_json, fecha_creacion
     FROM angel_ia_mensajes
     WHERE usuario_id = ?
     ORDER BY id DESC LIMIT 40
   `).all(req.auth.userId)).reverse();
-  res.json({ success: true, data: rows });
+  const data = rows.map((r) => {
+    let downloads = [];
+    try {
+      const meta = r.meta_json ? JSON.parse(r.meta_json) : null;
+      if (Array.isArray(meta?.downloads)) downloads = meta.downloads;
+    } catch (_) { /* ignore */ }
+    return {
+      id: r.id,
+      rol: r.rol,
+      contenido: r.contenido,
+      fecha_creacion: r.fecha_creacion,
+      downloads
+    };
+  });
+  res.json({ success: true, data });
 });
 
 router.post('/chat', async (req, res) => {
   try {
     const message = String(req.body?.message || '').trim();
-    if (!message) {
-      return res.status(400).json({ success: false, message: 'Escribe una pregunta' });
+    const imageDataUrl = req.body?.imageDataUrl || req.body?.dataUrl || null;
+    const viaVoz = !!(req.body?.via_voz || req.body?.viaVoz);
+    if (!message && !imageDataUrl) {
+      return res.status(400).json({ success: false, message: 'Escribe un mensaje o adjunta una foto' });
     }
     const history = (await req.db.prepare(`
       SELECT rol, contenido FROM angel_ia_mensajes
@@ -63,8 +93,10 @@ router.post('/chat', async (req, res) => {
       db: req.db,
       company: req.auth.company,
       user: req.auth.user,
-      message,
-      history
+      message: message || 'Problema reportado con foto',
+      history,
+      imageDataUrl,
+      viaVoz
     });
 
     res.json({ success: true, data: result });
@@ -75,6 +107,43 @@ router.post('/chat', async (req, res) => {
       success: false,
       message: err.message || 'Error al consultar Angel IA'
     });
+  }
+});
+
+/* ---- Voz (STT / TTS) ---- */
+router.get('/voice/config', async (req, res) => {
+  try {
+    const { getVoiceConfig } = require('../services/angel-voice');
+    const data = await getVoiceConfig(req.db);
+    res.json({ success: true, data });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.post('/voice/transcribe', async (req, res) => {
+  try {
+    const { transcribeAudio } = require('../services/angel-voice');
+    const data = await transcribeAudio(req.db, req.body || {});
+    res.json({ success: true, data });
+  } catch (err) {
+    console.error('[angel voice/transcribe]', err.message);
+    res.status(err.status || 500).json({ success: false, message: err.message || 'No se pudo transcribir' });
+  }
+});
+
+router.post('/voice/speak', async (req, res) => {
+  try {
+    const { synthesizeSpeech } = require('../services/angel-voice');
+    const text = String(req.body?.text || req.body?.message || '').trim();
+    const result = await synthesizeSpeech(req.db, text);
+    res.setHeader('Content-Type', result.contentType || 'audio/mpeg');
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-Angel-Voice', result.voice || '');
+    res.send(result.buffer);
+  } catch (err) {
+    console.error('[angel voice/speak]', err.message);
+    res.status(err.status || 500).json({ success: false, message: err.message || 'No se pudo generar voz' });
   }
 });
 
@@ -111,10 +180,26 @@ router.post('/alertas/sincronizar', async (req, res) => {
 });
 
 router.post('/alertas/:id/leer', async (req, res) => {
-  await req.db.prepare(`
-    UPDATE angel_ia_alertas SET leida = 1
+  const id = Number(req.params.id);
+  const uid = req.auth.userId;
+  const row = await req.db.prepare(`
+    SELECT id, referencia, tipo FROM angel_ia_alertas
     WHERE id = ? AND usuario_id = ?
-  `).run(Number(req.params.id), req.auth.userId);
+  `).get(id, uid);
+  if (row) {
+    // Marca esta y cualquier gemela (misma referencia) para limpiar la campana
+    if (row.referencia) {
+      await req.db.prepare(`
+        UPDATE angel_ia_alertas SET leida = 1
+        WHERE usuario_id = ? AND leida = 0 AND tipo = ? AND referencia = ?
+      `).run(uid, row.tipo, row.referencia);
+    } else {
+      await req.db.prepare(`
+        UPDATE angel_ia_alertas SET leida = 1
+        WHERE id = ? AND usuario_id = ?
+      `).run(id, uid);
+    }
+  }
   res.json({ success: true });
 });
 
@@ -147,32 +232,64 @@ router.post('/reportes/semanal', async (req, res) => {
 });
 
 router.get('/reportes', async (req, res) => {
-  const rows = await req.db.prepare(`
-    SELECT id, tipo, titulo, archivo, destinatarios, resumen, fecha_creacion
-    FROM angel_ia_reportes ORDER BY id DESC LIMIT 50
-  `).all();
-  res.json({ success: true, data: rows });
+  const isAdmin = Number(req.auth.user.rol_id) === 1
+    || (Array.isArray(req.auth.user.rol_ids) && req.auth.user.rol_ids.map(Number).includes(1));
+  const rows = isAdmin
+    ? await req.db.prepare(`
+        SELECT id, tipo, titulo, archivo, destinatarios, resumen, generado_por, fecha_creacion
+        FROM angel_ia_reportes ORDER BY id DESC LIMIT 50
+      `).all()
+    : await req.db.prepare(`
+        SELECT id, tipo, titulo, archivo, resumen, generado_por, fecha_creacion
+        FROM angel_ia_reportes
+        WHERE generado_por = ? OR generado_por IS NULL
+        ORDER BY id DESC LIMIT 50
+      `).all(req.auth.userId);
+  // No exponer emails de JP a usuarios normales
+  const data = rows.map((r) => ({
+    ...r,
+    destinatarios: isAdmin ? r.destinatarios : undefined
+  }));
+  res.json({ success: true, data });
 });
 
 router.get('/reportes/download/:file', async (req, res) => {
+  const { resolveReportFile } = require('../services/angel-excel');
   const file = path.basename(req.params.file);
-  const full = path.join(config.dataDir, 'reportes', file);
-  if (!fs.existsSync(full)) {
+  const resolved = resolveReportFile(req.auth.empresa, file);
+  if (!resolved) {
     return res.status(404).json({ success: false, message: 'Archivo no encontrado' });
   }
-  res.download(full, file);
+  // Validar que el reporte exista en BD para este tenant (archivo relativo o nombre)
+  const row = await req.db.prepare(`
+    SELECT id, generado_por, archivo FROM angel_ia_reportes
+    WHERE archivo = ? OR archivo LIKE ? OR archivo = ?
+    ORDER BY id DESC LIMIT 1
+  `).get(resolved.relative, `%/${file}`, `reportes/${file}`);
+  if (!row) {
+    return res.status(404).json({ success: false, message: 'Reporte no registrado' });
+  }
+  const isAdmin = Number(req.auth.user.rol_id) === 1
+    || (Array.isArray(req.auth.user.rol_ids) && req.auth.user.rol_ids.map(Number).includes(1));
+  if (!isAdmin && row.generado_por && Number(row.generado_por) !== Number(req.auth.userId)) {
+    return res.status(403).json({ success: false, message: 'No puedes descargar este reporte' });
+  }
+  res.download(resolved.full, file);
 });
 
 /* ---- Seguridad (solo admin): API OpenAI ---- */
 router.get('/seguridad', adminRequired, async (req, res) => {
   const cfg = await getConfig(req.db);
+  const status = await getAngelStatus(req.db);
   res.json({
     success: true,
     data: {
-      configurado: !!(cfg && cfg.api_key_enc),
-      hint: cfg?.api_key_hint || null,
-      model: cfg?.model || 'gpt-4o-mini',
-      activo: !!(cfg && cfg.activo),
+      configurado: status.activo,
+      env_configured: status.source === 'env',
+      source: status.source,
+      hint: status.hint,
+      model: status.model,
+      activo: status.activo,
       reporte_semanal: !!(cfg && cfg.reporte_semanal),
       dia_reporte: cfg?.dia_reporte ?? 1,
       hora_reporte: cfg?.hora_reporte || '08:00',
@@ -306,14 +423,18 @@ router.post('/seguridad', adminRequired, async (req, res) => {
 
 router.post('/seguridad/probar', adminRequired, async (req, res) => {
   try {
-    const cfg = await getConfig(req.db);
-    if (!cfg?.api_key_enc) {
-      return res.status(400).json({ success: false, message: 'No hay API key configurada' });
+    const apiKey = await getApiKey(req.db);
+    if (!apiKey) {
+      return res.status(400).json({
+        success: false,
+        message: 'No hay API key configurada. Define OPENAI_API_KEY en el servidor o guárdala aquí.'
+      });
     }
     const OpenAI = require('openai');
-    const client = new OpenAI({ apiKey: decrypt(cfg.api_key_enc) });
+    const client = new OpenAI({ apiKey });
+    const model = await getAngelModel(req.db);
     const r = await client.chat.completions.create({
-      model: cfg.model || 'gpt-4o-mini',
+      model,
       messages: [{ role: 'user', content: 'Responde solo: OK Angel IA' }],
       max_tokens: 20
     });

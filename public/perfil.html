@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Mi perfil - ESERCOM</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <link href="/css/app.css?v=toast1" rel="stylesheet">
+</head>
+<body>
+  <script src="/js/auth.js?v=notif2"></script>
+  <script src="/js/ui.js?v=resp2"></script>
+  <script>
+    const user = renderShell('/perfil.html', '<i class="fas fa-user-circle"></i> Mi perfil', 'Datos de su cuenta y cambio de contraseña');
+    if (user) {
+      const content = document.getElementById('app-content');
+      content.innerHTML = `
+        <div id="flash"></div>
+        <div class="perfil-grid">
+          <div class="card">
+            <div class="card-header"><h2><i class="fas fa-id-card"></i> Mis datos</h2></div>
+            <div class="card-body">
+              <div class="perfil-info">
+                <div><span>Nombre</span><strong>${escapeHtml(user.nombreCompleto || ((user.nombre || '') + ' ' + (user.apellido || '')).trim())}</strong></div>
+                <div><span>Correo</span><strong>${escapeHtml(user.email || '—')}</strong></div>
+                <div><span>Cargo</span><strong>${escapeHtml(user.cargo || '—')}</strong></div>
+                <div><span>Rol</span><strong>${escapeHtml(user.rol || '—')}</strong></div>
+                <div><span>Departamento</span><strong>${escapeHtml(user.departamento || '—')}</strong></div>
+                <div><span>Empresa</span><strong>${escapeHtml(user.empresaNombre || user.empresa || '—')}</strong></div>
+              </div>
+              <p class="perfil-hint">Para cambiar nombre, cargo o permisos, solicítelo a un administrador en Configuraciones.</p>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header"><h2><i class="fas fa-key"></i> Cambiar contraseña</h2></div>
+            <div class="card-body">
+              <form id="formPass" class="perfil-pass-form" autocomplete="off">
+                <div class="form-group">
+                  <label for="passActual">Contraseña actual *</label>
+                  <input type="password" id="passActual" required autocomplete="current-password" placeholder="Su contraseña actual">
+                </div>
+                <div class="form-group">
+                  <label for="passNueva">Nueva contraseña *</label>
+                  <input type="password" id="passNueva" required minlength="6" autocomplete="new-password" placeholder="Mínimo 6 caracteres">
+                </div>
+                <div class="form-group">
+                  <label for="passConfirmar">Confirmar nueva *</label>
+                  <input type="password" id="passConfirmar" required minlength="6" autocomplete="new-password" placeholder="Repita la nueva contraseña">
+                </div>
+                <button type="submit" class="btn btn-primary" id="btnPass">
+                  <i class="fas fa-save"></i> Guardar contraseña
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      `;
+
+      document.getElementById('formPass').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const actual = document.getElementById('passActual').value;
+        const nueva = document.getElementById('passNueva').value;
+        const confirmar = document.getElementById('passConfirmar').value;
+        if (nueva.length < 6) return UI.flash('La nueva contraseña debe tener al menos 6 caracteres', true);
+        if (nueva !== confirmar) return UI.flash('La confirmación no coincide', true);
+        const btn = document.getElementById('btnPass');
+        btn.disabled = true;
+        try {
+          const res = await Auth.api('/api/auth/cambiar-password', {
+            method: 'POST',
+            body: JSON.stringify({
+              password_actual: actual,
+              password_nueva: nueva,
+              password_confirmar: confirmar
+            }),
+            noCache: true
+          });
+          UI.flash(res.message || 'Contraseña actualizada');
+          document.getElementById('formPass').reset();
+        } catch (err) {
+          UI.flash(err.message || 'No se pudo cambiar', true);
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    }
+
+    function escapeHtml(s) {
+      return String(s || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+  </script>
+</body>
+</html>

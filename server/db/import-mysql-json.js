@@ -231,6 +231,11 @@ async function main() {
       WHERE (lower(cargo) LIKE '%mantenc%' OR lower(cargo) LIKE '%ssgg%' OR lower(cargo) LIKE '%servicios generales%')
         AND COALESCE(flag_ssgg,0) = 0
     `).run();
+    db.prepare(`
+      UPDATE usuarios SET flag_chofer = 1
+      WHERE (lower(cargo) LIKE '%chofer%' OR lower(cargo) LIKE '%conductor%')
+        AND COALESCE(flag_chofer,0) = 0
+    `).run();
     db.prepare(`UPDATE usuarios SET flag_checklist=1, flag_flota=1, flag_ssgg=1, flag_camion_pluma=1, flag_aprobador_salida=1 WHERE rol_id=1`).run();
   } catch (err) {
     console.warn('Flags auto:', err.message);

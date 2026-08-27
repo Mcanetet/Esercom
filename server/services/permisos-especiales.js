@@ -55,7 +55,7 @@ const CATALOGO = [
     codigo: 'camion_agenda_control',
     modulo: 'Camión Pluma',
     titulo: 'Control Agenda Camión Pluma',
-    descripcion: 'Puede crear, editar y eliminar servicios en la agenda (perfil tipo Edith Gómez).',
+    descripcion: 'Permiso adicional para crear/editar agenda. También basta con el check del módulo «Agenda Camión Pluma» en el rol.',
     flag: 'flag_camion_pluma'
   },
   {
@@ -101,10 +101,45 @@ const CATALOGO = [
     flag: 'flag_flota'
   },
   {
+    codigo: 'flota_gestion_incidencias',
+    modulo: 'Flota',
+    titulo: 'Gestión de incidencias checklist',
+    descripcion: 'Toma y gestiona requerimientos con problemas en checklist de flota (Martin Vera, Charly Machado).',
+    flag: 'flag_flota'
+  },
+  {
     codigo: 'asignar_bodeguero_extra',
     modulo: 'Materiales',
     titulo: 'Asignar bodeguero (excepciones)',
     descripcion: 'Puede asignar bodeguero aunque su rol no sea de bodega.',
+    flag: null
+  },
+  {
+    codigo: 'catalogo_g_editor',
+    modulo: 'Catálogo G',
+    titulo: 'Catálogo G — editor',
+    descripcion: 'Puede crear y editar ítems del Catálogo G (analistas: Michelle Ávila, Miguel Cañete). También editan: Administrador, Subadministrador y rol «Catálogo G». Solo empresa Global.',
+    flag: null
+  },
+  {
+    codigo: 'catalogo_s_editor',
+    modulo: 'Catálogo S',
+    titulo: 'Catálogo S — editor',
+    descripcion: 'Puede crear y editar ítems del Catálogo S. También editan: Administrador, Subadministrador y rol «Catálogo S». Solo empresa Sercom.',
+    flag: null
+  },
+  {
+    codigo: 'catalogo_n_editor',
+    modulo: 'Catálogo N',
+    titulo: 'Catálogo N — editor',
+    descripcion: 'Puede crear y editar ítems del Catálogo N. También editan: Administrador, Subadministrador y rol «Catálogo N». Solo empresa Nexus.',
+    flag: null
+  },
+  {
+    codigo: 'catalogo_t_editor',
+    modulo: 'Catálogo T',
+    titulo: 'Catálogo T — editor',
+    descripcion: 'Puede crear y editar ítems del Catálogo T. También editan: Administrador, Subadministrador y rol «Catálogo T». Solo empresa Táctica.',
     flag: null
   }
 ];
@@ -268,6 +303,10 @@ async function seedKnownUsers(db) {
     { codigo: 'materiales_modificar_admin', like: '%nicole%' },
     { codigo: 'materiales_modificar_admin', like: '%miguel%ca%ete%' },
     { codigo: 'guias_validador', like: '%nicole%' },
+    { codigo: 'flota_gestion_incidencias', like: '%martin%vera%' },
+    { codigo: 'flota_gestion_incidencias', like: '%charly%machado%' },
+    { codigo: 'flota_aprobador', like: '%martin%vera%' },
+    { codigo: 'flota_aprobador', like: '%charly%machado%' },
     { codigo: 'guias_validador', like: '%manuel%' },
     { codigo: 'guias_validador', like: '%miguel%ca%ete%' }
   ];

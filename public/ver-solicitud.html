@@ -6,11 +6,11 @@
   <title>Ver Solicitud - ESERCOM</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <link href="/css/app.css?v=resp2" rel="stylesheet">
+  <link href="/css/app.css?v=hist1" rel="stylesheet">
 </head>
 <body>
-  <script src="/js/auth.js?v=pages1"></script>
-  <script src="/js/ui.js?v=resp2"></script>
+  <script src="/js/auth.js?v=notif2"></script>
+  <script src="/js/ui.js?v=guias1"></script>
   <script>
     const user = renderShell(
       '/solicitud-salida-materiales.html',
@@ -18,10 +18,118 @@
       'Consulta, aprobación e historial'
     );
 
-    const id = new URLSearchParams(window.location.search).get('id');
+    const idParam = new URLSearchParams(window.location.search).get('id');
+    const codigoParam = new URLSearchParams(window.location.search).get('codigo');
+    let id = idParam;
+
+    function esc(s) {
+      return String(s ?? '').replace(/[&<>"']/g, (c) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[c]));
+    }
+
+    function publicUploadUrl(ruta) {
+      if (!ruta) return '';
+      let s = String(ruta).trim();
+      if (!s) return '';
+      if (/^https?:\/\//i.test(s)) return s;
+      s = s.replace(/^\.\.\//, '').replace(/^\/+/, '');
+      if (s.startsWith('antiguo/uploads/')) s = s.slice('antiguo/'.length);
+      return '/' + s;
+    }
+
+    function renderGuiasDetalle(s) {
+      const links = [];
+      let guias = [];
+      try {
+        const raw = s.guias_proveedor;
+        const v = typeof raw === 'string' ? JSON.parse(raw || 'null') : raw;
+        if (Array.isArray(v)) guias = v;
+      } catch (_) { /* ignore */ }
+      guias.forEach((g, i) => {
+        const href = publicUploadUrl(g.ruta || g.url || '');
+        if (!href) return;
+        const nombre = g.nombre_original || g.nombre || `Guía proveedor ${i + 1}`;
+        links.push(`<a class="btn btn-outline btn-sm" href="${esc(href)}" target="_blank" rel="noopener"><i class="fas fa-file-pdf"></i> ${esc(nombre)}</a>`);
+      });
+      const arch = publicUploadUrl(s.guia_proveedor_archivo);
+      if (arch && !guias.length) {
+        links.push(`<a class="btn btn-outline btn-sm" href="${esc(arch)}" target="_blank" rel="noopener"><i class="fas fa-file-pdf"></i> Guía proveedor</a>`);
+      }
+      const softAdj = publicUploadUrl(s.guia_softland_adjunto);
+      if (softAdj) {
+        links.push(`<a class="btn btn-outline btn-sm" href="${esc(softAdj)}" target="_blank" rel="noopener"><i class="fas fa-file-invoice"></i> Adjunto Softland</a>`);
+      }
+      if (!links.length) return '';
+      return `
+        <div style="margin-top:1.25rem;padding-top:1rem;border-top:1px solid var(--border)">
+          <strong><i class="fas fa-paperclip"></i> Guías adjuntas</strong>
+          <div style="display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.65rem">${links.join('')}</div>
+        </div>`;
+    }
+
+    function formatDateTime(v) {
+      if (!v) return '—';
+      try {
+        const d = new Date(v);
+        if (Number.isNaN(d.getTime())) return String(v);
+        return d.toLocaleString('es-CL', {
+          day: '2-digit', month: '2-digit', year: 'numeric',
+          hour: '2-digit', minute: '2-digit'
+        });
+      } catch (_) {
+        return String(v);
+      }
+    }
+
+    function renderHistorialTimeline(items) {
+      if (!items || !items.length) {
+        return '<div class="empty">Sin historial de movimientos</div>';
+      }
+      return `
+        <div class="mat-timeline">
+          ${items.map((h) => `
+            <div class="mat-timeline-item" style="border-left-color:${esc(h.color || '#64748b')}">
+              <div class="mat-timeline-icon" style="background:${esc(h.color || '#64748b')}">
+                <i class="fas ${esc(h.icono || 'fa-circle')}"></i>
+              </div>
+              <div class="mat-timeline-body">
+                <div class="mat-timeline-head">
+                  <strong>${esc(h.accion || 'Movimiento')}</strong>
+                  <span>${formatDateTime(h.fecha_cambio || h.fecha)}</span>
+                </div>
+                <div class="mat-timeline-user"><i class="fas fa-user"></i> ${esc(h.usuario || 'Sistema')}</div>
+                ${h.estado ? `<div class="mat-timeline-estado">Estado: ${esc(h.estado)}</div>` : ''}
+                ${(h.detalle || h.comentarios) ? `<div class="mat-timeline-detail">${esc(h.detalle || h.comentarios)}</div>` : ''}
+              </div>
+            </div>
+          `).join('')}
+        </div>`;
+    }
+
+    async function resolveId() {
+      if (id) return id;
+      if (!codigoParam) return null;
+      const q = String(codigoParam).trim();
+      const { data } = await Auth.api('/api/solicitudes?q=' + encodeURIComponent(q) + '&limit=20');
+      const rows = Array.isArray(data) ? data : [];
+      const exact = rows.find((r) => String(r.codigo || '').toUpperCase() === q.toUpperCase());
+      const hit = exact || rows[0];
+      if (hit?.id) {
+        id = String(hit.id);
+        try {
+          history.replaceState(null, '', '/ver-solicitud.html?id=' + encodeURIComponent(id));
+        } catch (_) { /* ignore */ }
+        return id;
+      }
+      return null;
+    }
 
     async function load() {
       const content = document.getElementById('app-content');
+      try {
+        await resolveId();
+      } catch (_) { /* ignore */ }
       if (!id) {
         content.innerHTML = '<div class="alert alert-error">ID de solicitud no indicado</div>';
         return;
@@ -43,6 +151,10 @@
           || String(current?.rol || '').toLowerCase().includes('admin');
         const canApprove = s.estado_id === 1 && esAprobador;
         const canReject = (s.estado_id === 1 || s.estado_id === 4) && esAprobador;
+        const esAdmin = current?.rol_id === 1 || String(current?.rol || '').toLowerCase().includes('admin');
+        const propia = Number(s.solicitante_id) === Number(current?.id);
+        const cerrada = /anulad|rechazad|cerrad|entregad/i.test(s.estado || '') || [6, 7, 8].includes(Number(s.estado_id));
+        const canAnular = !cerrada && (esAdmin || esAprobador || propia);
 
         content.innerHTML = `
           <div id="flash"></div>
@@ -51,6 +163,7 @@
             <div class="spacer"></div>
             ${canApprove ? `<button class="btn btn-success" id="btnAprobar"><i class="fas fa-check"></i> Aprobar</button>` : ''}
             ${canReject ? `<button class="btn btn-danger" id="btnRechazar"><i class="fas fa-times"></i> Rechazar</button>` : ''}
+            ${canAnular ? `<button class="btn btn-outline" id="btnAnular"><i class="fas fa-ban"></i> Anular</button>` : ''}
           </div>
 
           <div class="card">
@@ -69,8 +182,20 @@
                 <div><strong>Bodega</strong><div>${s.bodega_nombre || '—'}</div></div>
                 <div><strong>Quién retira</strong><div>${s.quien_retira || '—'}</div></div>
                 <div><strong>Quién usa</strong><div>${s.quien_usa || '—'}</div></div>
+                <div><strong>Guía Softland</strong><div>${s.numero_guia_softland || '—'}</div></div>
               </div>
+              ${renderGuiasDetalle(s)}
               ${s.observaciones ? `<p style="margin-top:1rem;color:var(--muted)"><strong>Obs:</strong> ${s.observaciones}</p>` : ''}
+              ${(s.despacho_conductor || s.despacho_patente || s.despacho_rut || s.despacho_direccion) ? `
+                <div style="margin-top:1.25rem;padding-top:1rem;border-top:1px solid var(--border)">
+                  <strong><i class="fas fa-truck"></i> Guía de despacho</strong>
+                  <div class="form-row cols-2" style="margin-top:0.65rem">
+                    <div><strong>Conductor</strong><div>${s.despacho_conductor || '—'}</div></div>
+                    <div><strong>RUT</strong><div>${s.despacho_rut || '—'}</div></div>
+                    <div><strong>Patente</strong><div>${s.despacho_patente || '—'}</div></div>
+                    <div><strong>Dirección</strong><div>${s.despacho_direccion || '—'}</div></div>
+                  </div>
+                </div>` : ''}
             </div>
           </div>
 
@@ -103,21 +228,8 @@
 
           <div class="card">
             <div class="card-header"><h2>Historial</h2></div>
-            <div class="card-body table-wrap">
-              <table class="data">
-                <thead><tr><th>Fecha</th><th>Acción</th><th>Estado</th><th>Usuario</th><th>Comentarios</th></tr></thead>
-                <tbody>
-                  ${(s.historial || []).map((h) => `
-                    <tr>
-                      <td>${formatDate(h.fecha_cambio)}</td>
-                      <td>${h.accion}</td>
-                      <td>${h.estado || '—'}</td>
-                      <td>${h.usuario || '—'}</td>
-                      <td>${h.comentarios || '—'}</td>
-                    </tr>
-                  `).join('') || '<tr><td colspan="5" class="empty">Sin historial</td></tr>'}
-                </tbody>
-              </table>
+            <div class="card-body">
+              ${renderHistorialTimeline(s.historial || [])}
             </div>
           </div>
         `;
@@ -138,6 +250,18 @@
             });
             flash('Solicitud rechazada');
             setTimeout(load, 600);
+          } catch (err) { flash(err.message, true); }
+        });
+        document.getElementById('btnAnular')?.addEventListener('click', async () => {
+          const comentarios = prompt('Motivo de anulación:') || 'Anulada';
+          if (!confirm('¿Anular esta solicitud?')) return;
+          try {
+            await Auth.api('/api/solicitudes/' + id + '/anular', {
+              method: 'POST',
+              body: JSON.stringify({ comentarios })
+            });
+            flash('Solicitud anulada');
+            setTimeout(() => { window.location.href = '/solicitud-salida-materiales.html'; }, 700);
           } catch (err) { flash(err.message, true); }
         });
       } catch (err) {

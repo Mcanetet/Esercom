@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Incidencias - ESERCOM</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <link href="/css/app.css?v=inc1" rel="stylesheet">
+</head>
+<body>
+  <script src="/js/auth.js?v=notif2"></script>
+  <script src="/js/ui.js?v=resp2"></script>
+  <script>
+    const user = renderShell('/incidencias.html', '<i class="fas fa-life-ring"></i> Incidencias', 'Reportes de problemas con foto · aviso a admin / subadmin');
+    let state = { canManage: false, estados: ['Abierta', 'En proceso', 'Resuelta', 'Cerrada'], preview: null };
+
+    function esc(s) {
+      return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function fileToDataUrl(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error('No se pudo leer la imagen'));
+        reader.readAsDataURL(file);
+      });
+    }
+
+    async function boot() {
+      const content = document.getElementById('app-content');
+      try {
+        const params = new URLSearchParams();
+        const estado = document.getElementById('fEstado')?.value || '';
+        const q = document.getElementById('fQ')?.value || '';
+        const mias = document.getElementById('fMias')?.checked;
+        if (estado) params.set('estado', estado);
+        if (q) params.set('q', q);
+        if (mias) params.set('mias', '1');
+        const list = await Auth.api('/api/modulos/incidencias?' + params.toString());
+        state.canManage = !!list.canManage;
+        state.estados = list.estados || state.estados;
+        const rows = list.data || [];
+
+        content.innerHTML = `
+          <div id="flash"></div>
+          <div class="card">
+            <div class="card-header"><h2><i class="fas fa-plus-circle"></i> Nueva incidencia</h2></div>
+            <div class="card-body">
+              <form id="formInc">
+                <div class="form-row cols-2">
+                  <div class="form-group">
+                    <label>Título *</label>
+                    <input id="incTitulo" required maxlength="255" placeholder="Ej: Error al guardar checklist">
+                  </div>
+                  <div class="form-group">
+                    <label>Prioridad</label>
+                    <select id="incPri">
+                      <option value="media">Media</option>
+                      <option value="alta">Alta</option>
+                      <option value="baja">Baja</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label>Descripción *</label>
+                  <textarea id="incDesc" rows="3" required placeholder="Qué pasó, en qué pantalla, qué intentaste…"></textarea>
+                </div>
+                <div class="form-group">
+                  <label>Foto / captura (opcional pero recomendada)</label>
+                  <input type="file" id="incFoto" accept="image/jpeg,image/png,image/webp,image/*">
+                  <div id="incPreview" class="inc-preview" hidden></div>
+                </div>
+                <button class="btn btn-primary" type="submit"><i class="fas fa-paper-plane"></i> Enviar a administradores</button>
+                <p class="help-text" style="margin-top:.65rem">También puedes reportar desde Angel IA adjuntando una foto al chat.</p>
+              </form>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <h2>Registro</h2>
+              <div class="inc-filters">
+                <input type="search" id="fQ" placeholder="Buscar…" value="${esc(q)}" style="max-width:160px">
+                <select id="fEstado">
+                  <option value="">Todos los estados</option>
+                  ${state.estados.map((e) => `<option value="${e}" ${e === estado ? 'selected' : ''}>${e}</option>`).join('')}
+                </select>
+                ${state.canManage ? `<label class="ck-check"><input type="checkbox" id="fMias" ${mias ? 'checked' : ''}> Solo mías</label>` : ''}
+                <button type="button" class="btn btn-outline btn-sm" id="btnFiltrar"><i class="fas fa-filter"></i></button>
+              </div>
+            </div>
+            <div class="card-body table-wrap">
+              <table class="data">
+                <thead>
+                  <tr>
+                    <th>Código</th><th>Título</th><th>Estado</th><th>Prioridad</th>
+                    <th>Reportó</th><th>Fecha</th><th>Foto</th>${state.canManage ? '<th></th>' : ''}
+                  </tr>
+                </thead>
+                <tbody>
+                  ${rows.map((r) => `
+                    <tr>
+                      <td><strong>${esc(r.codigo)}</strong></td>
+                      <td>${esc(r.titulo)}<div class="muted" style="font-size:.78rem">${esc(String(r.descripcion || '').slice(0, 80))}</div></td>
+                      <td>${badge(r.estado, statusColor(r.estado))}</td>
+                      <td>${esc(r.prioridad || 'media')}</td>
+                      <td>${esc([r.solicitante_nombre, r.solicitante_apellido].filter(Boolean).join(' ') || '—')}</td>
+                      <td>${formatDate(r.fecha_creacion)}</td>
+                      <td>${r.foto_ruta ? `<a class="btn btn-outline btn-sm" href="${esc(r.foto_ruta)}" target="_blank" rel="noopener"><i class="fas fa-image"></i></a>` : '—'}</td>
+                      ${state.canManage ? `<td><button class="btn btn-secondary btn-sm" data-edit="${r.id}"><i class="fas fa-pen"></i></button></td>` : ''}
+                    </tr>
+                  `).join('') || UI.emptyRow(state.canManage ? 8 : 7, 'Sin incidencias')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="cfg-modal" id="modalInc" aria-hidden="true">
+            <div class="cfg-modal-backdrop" data-close-inc></div>
+            <div class="cfg-modal-panel" role="dialog">
+              <div class="cfg-modal-head">
+                <div><h2 id="modalIncTitle">Gestionar incidencia</h2></div>
+                <button type="button" class="cfg-modal-x" data-close-inc>&times;</button>
+              </div>
+              <div class="cfg-modal-body">
+                <input type="hidden" id="editId">
+                <div class="form-group"><label>Estado</label>
+                  <select id="editEstado">${state.estados.map((e) => `<option>${e}</option>`).join('')}</select>
+                </div>
+                <div class="form-group"><label>Prioridad</label>
+                  <select id="editPri"><option value="alta">alta</option><option value="media">media</option><option value="baja">baja</option></select>
+                </div>
+                <div class="form-group"><label>Nota admin</label>
+                  <textarea id="editNota" rows="3" placeholder="Comentario interno / respuesta…"></textarea>
+                </div>
+                <div class="cfg-modal-footer">
+                  <button type="button" class="btn btn-outline" data-close-inc>Cancelar</button>
+                  <button type="button" class="btn btn-primary" id="btnSaveInc"><i class="fas fa-save"></i> Guardar</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+
+        document.getElementById('incFoto').onchange = async (e) => {
+          const f = e.target.files?.[0];
+          const box = document.getElementById('incPreview');
+          if (!f) { state.preview = null; box.hidden = true; box.innerHTML = ''; return; }
+          state.preview = await fileToDataUrl(f);
+          box.hidden = false;
+          box.innerHTML = `<img src="${state.preview}" alt="Vista previa">`;
+        };
+
+        document.getElementById('formInc').onsubmit = async (e) => {
+          e.preventDefault();
+          try {
+            const r = await Auth.api('/api/modulos/incidencias', {
+              method: 'POST',
+              body: JSON.stringify({
+                titulo: incTitulo.value.trim(),
+                descripcion: incDesc.value.trim(),
+                prioridad: incPri.value,
+                dataUrl: state.preview || null,
+                origen: 'modulo'
+              })
+            });
+            UI.flash(r.message || 'Incidencia creada');
+            state.preview = null;
+            boot();
+          } catch (err) { UI.flash(err.message, true); }
+        };
+
+        document.getElementById('btnFiltrar')?.addEventListener('click', () => boot());
+        document.getElementById('fQ')?.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') boot(); });
+
+        document.querySelectorAll('[data-edit]').forEach((btn) => {
+          btn.onclick = async () => {
+            const id = btn.getAttribute('data-edit');
+            const r = await Auth.api('/api/modulos/incidencias/' + id);
+            const d = r.data;
+            editId.value = d.id;
+            editEstado.value = d.estado;
+            editPri.value = d.prioridad || 'media';
+            editNota.value = d.admin_nota || '';
+            modalIncTitle.textContent = `Gestionar ${d.codigo}`;
+            modalInc.classList.add('is-open');
+            modalInc.setAttribute('aria-hidden', 'false');
+          };
+        });
+        document.querySelectorAll('[data-close-inc]').forEach((el) => {
+          el.onclick = () => {
+            modalInc.classList.remove('is-open');
+            modalInc.setAttribute('aria-hidden', 'true');
+          };
+        });
+        document.getElementById('btnSaveInc').onclick = async () => {
+          try {
+            await Auth.api('/api/modulos/incidencias/' + editId.value, {
+              method: 'PUT',
+              body: JSON.stringify({
+                estado: editEstado.value,
+                prioridad: editPri.value,
+                admin_nota: editNota.value
+              })
+            });
+            UI.flash('Incidencia actualizada');
+            modalInc.classList.remove('is-open');
+            boot();
+          } catch (err) { UI.flash(err.message, true); }
+        };
+      } catch (e) {
+        content.innerHTML = `<div class="alert alert-error">${esc(e.message)}</div>`;
+      }
+    }
+    if (user) boot();
+  </script>
+</body>
+</html>

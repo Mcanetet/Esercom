@@ -1,16 +1,25 @@
 function adminRequired(req, res, next) {
-  const rol = String(req.auth?.user?.rol || '').toLowerCase();
-  const cargo = String(req.auth?.user?.cargo || '').toLowerCase();
+  const user = req.auth?.user;
+  const rolId = Number(user?.rol_id);
+  const rolIds = Array.isArray(user?.rol_ids) ? user.rol_ids.map(Number) : [];
+  const names = [
+    user?.rol,
+    ...(Array.isArray(user?.roles) ? user.roles : [])
+  ]
+    .join(' ')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+
   const ok =
-    rol.includes('admin') ||
-    rol.includes('administrador') ||
-    cargo.includes('admin') ||
-    req.auth?.user?.rol_id === 1;
+    rolId === 1 ||
+    rolIds.includes(1) ||
+    /(^|\b)(administrador|administrator|super\s*admin)\b/.test(names);
 
   if (!ok) {
     return res.status(403).json({
       success: false,
-      message: 'Acceso restringido: solo administradores (seguridad Angel IA)'
+      message: 'Acceso restringido: solo administradores'
     });
   }
   next();

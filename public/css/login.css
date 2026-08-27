@@ -227,7 +227,14 @@ body {
   box-shadow: 0 0 0 2px var(--login-accent-light);
 }
 
-.remember-section { margin-bottom: 1.5rem; }
+.remember-section {
+  margin-bottom: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
 .remember-checkbox {
   display: inline-flex;
   align-items: center;
@@ -237,6 +244,63 @@ body {
   cursor: pointer;
 }
 .remember-checkbox input { accent-color: var(--login-accent); }
+.link-forgot {
+  border: none;
+  background: none;
+  color: var(--login-accent);
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+}
+.link-forgot:hover { text-decoration: underline; color: var(--login-accent-hover); }
+
+.recover-panel { margin-top: 0.25rem; }
+.recover-back {
+  border: none;
+  background: none;
+  color: var(--login-muted);
+  font: inherit;
+  font-size: 0.84rem;
+  cursor: pointer;
+  padding: 0;
+  margin-bottom: 0.85rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.recover-back:hover { color: var(--login-accent); }
+.recover-title {
+  margin: 0 0 0.35rem;
+  font-size: 1.15rem;
+  color: var(--login-title);
+}
+.recover-sub {
+  margin: 0 0 1rem;
+  font-size: 0.88rem;
+  color: var(--login-muted);
+  line-height: 1.4;
+}
+.recover-resend {
+  display: block;
+  width: 100%;
+  text-align: center;
+  margin-top: 0.85rem;
+}
+#recoverAlert .alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: 10px;
+  margin-bottom: 0.85rem;
+  font-size: 0.86rem;
+}
+#recoverAlert .alert-danger { background: #fef2f2; color: #b91c1c; }
+#recoverAlert .alert-success { background: #f0fdf4; color: #15803d; }
+[data-theme="dark"] #recoverAlert .alert-danger { background: rgba(185,28,28,0.2); color: #fecaca; }
+[data-theme="dark"] #recoverAlert .alert-success { background: rgba(21,128,61,0.2); color: #bbf7d0; }
 
 .btn-login {
   width: 100%;

@@ -6,47 +6,15 @@
   <title>Configuraciones - ESERCOM</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <link href="/css/app.css?v=cfg8" rel="stylesheet">
+  <link href="/css/app.css?v=notif1" rel="stylesheet">
 </head>
 <body>
-  <script src="/js/auth.js?v=pages2"></script>
+  <script src="/js/auth.js?v=notif2"></script>
   <script src="/js/ui.js?v=resp2"></script>
   <script>
     const user = renderShell('/configuraciones.html', '<i class="fas fa-cog"></i> Configuraciones', 'Maestros y perfiles operativos');
 
-    const FLAG_LABELS = [
-      { key: 'flag_checklist', label: 'Checklist Flota', hint: 'Puede registrar checklists' },
-      { key: 'flag_flota', label: 'Encargado de Flota', hint: 'Toma requerimientos de flota' },
-      { key: 'flag_ssgg', label: 'Servicios Generales', hint: 'Personal de mantención' },
-      { key: 'flag_camion_pluma', label: 'Agenda Camión Pluma', hint: 'Puede modificar la agenda' },
-      { key: 'flag_aprobador_salida', label: 'Aprobador Salida', hint: 'Aprueba salidas especiales' }
-    ];
-
-    let state = { users: [], mats: [], provs: [], cecos: [], roles: [], depts: [], resumen: {}, permisos: [] };
-
-    function flagsHtml(prefix, values = {}) {
-      return `<div class="user-flags">${FLAG_LABELS.map((f) => `
-        <label class="user-flag">
-          <input type="checkbox" id="${prefix}_${f.key}" ${values[f.key] ? 'checked' : ''}>
-          <span><strong>${f.label}</strong><small>${f.hint}</small></span>
-        </label>`).join('')}</div>`;
-    }
-
-    function readFlags(prefix) {
-      const out = {};
-      FLAG_LABELS.forEach((f) => { out[f.key] = !!document.getElementById(`${prefix}_${f.key}`)?.checked; });
-      return out;
-    }
-
-    function chips(u) {
-      const parts = [];
-      if (u.flag_checklist) parts.push('<span class="chip">Checklist</span>');
-      if (u.flag_flota) parts.push('<span class="chip chip-flota">Flota</span>');
-      if (u.flag_ssgg) parts.push('<span class="chip chip-ssgg">SSGG</span>');
-      if (u.flag_camion_pluma) parts.push('<span class="chip chip-camion">Camión</span>');
-      if (u.flag_aprobador_salida) parts.push('<span class="chip chip-aprob">Aprob.</span>');
-      return parts.join(' ') || '<span class="muted">—</span>';
-    }
+    let state = { users: [], mats: [], provs: [], cecos: [], roles: [], depts: [], empresasList: [], resumen: {}, permisos: [], flotaCatalogo: { total: 0, ultima_carga: null, archivo_nombre: null, cargado_por_nombre: null, alert_email: 'flota@serviciossercom.cl', data: [] } };
 
     const ROLE_CB_PREFIX = 'rf_';
 
@@ -57,21 +25,27 @@
     function renderRolePagesCheckboxes() {
       const pages = window.PAGES_CATALOG || [];
       return `
-        <label class="role-all-access">
-          <input type="checkbox" id="rAllPages">
-          <span><strong>Acceso total</strong> — todas las páginas del sistema</span>
-        </label>
-        <div class="role-pages-toolbar">
-          <button type="button" class="btn btn-outline btn-sm" id="rPagesSelectAll">Marcar todas</button>
-          <button type="button" class="btn btn-outline btn-sm" id="rPagesSelectNone">Ninguna</button>
-        </div>
-        <div class="role-pages-grid" id="rPagesGrid">
-          ${pages.map((p) => `
-            <label class="role-page-check">
-              <input type="checkbox" id="${rolePageCbId(p.key)}" data-page-key="${p.key}">
-              <span>${p.label}</span>
-            </label>
-          `).join('')}
+        <div class="role-pages-panel">
+          <label class="role-all-access">
+            <input type="checkbox" id="rAllPages">
+            <span><strong>Acceso total</strong> — todas las páginas del sistema</span>
+          </label>
+          <div class="role-pages-toolbar">
+            <button type="button" class="btn btn-outline btn-sm" id="rPagesSelectAll">Marcar todas</button>
+            <button type="button" class="btn btn-outline btn-sm" id="rPagesSelectNone">Ninguna</button>
+          </div>
+          <div class="cfg-search-wrap role-pages-search">
+            <i class="fas fa-search"></i>
+            <input type="search" id="rPagesSearch" placeholder="Buscar página por nombre…" autocomplete="off">
+          </div>
+          <div class="role-pages-grid" id="rPagesGrid">
+            ${pages.map((p) => `
+              <label class="role-page-check" data-page-label="${escapeHtml(String(p.label || '').toLowerCase())}">
+                <input type="checkbox" id="${rolePageCbId(p.key)}" data-page-key="${p.key}">
+                <span class="role-page-check-text">${escapeHtml(p.label)}</span>
+              </label>
+            `).join('')}
+          </div>
         </div>`;
     }
 
@@ -126,6 +100,18 @@
       });
     }
 
+    function bindRolePagesSearch() {
+      const input = document.getElementById('rPagesSearch');
+      if (!input) return;
+      input.addEventListener('input', () => {
+        const q = input.value.trim().toLowerCase();
+        document.querySelectorAll('.role-page-check').forEach((el) => {
+          const label = el.getAttribute('data-page-label') || '';
+          el.classList.toggle('role-filtered-out', !!(q && !label.includes(q)));
+        });
+      });
+    }
+
     function openRoleForm(editRole) {
       closeModal('modalRoles');
       resetRoleForm(editRole);
@@ -133,6 +119,7 @@
       if (host) {
         host.innerHTML = renderRolePagesCheckboxes();
         bindRolePagesUi();
+        bindRolePagesSearch();
         setRolePages(editRole?.paginas_permitidas || ['home.html', 'solicitud-salida-materiales.html']);
       }
       openModal('modalRoleForm');
@@ -159,15 +146,75 @@
         .replace(/"/g, '&quot;');
     }
 
-    function filterUsersByQuery(q, limit = 15) {
+    function filterUsersByQuery(q, limit = 20, opts = {}) {
       const n = String(q || '').trim().toLowerCase();
-      const list = state.users || [];
+      const rolId = opts.rolId ? String(opts.rolId) : '';
+      let list = state.users || [];
+      if (rolId) {
+        list = list.filter((u) => {
+          const ids = Array.isArray(u.rol_ids) && u.rol_ids.length
+            ? u.rol_ids.map(String)
+            : [String(u.rol_id || '')];
+          return ids.includes(rolId);
+        });
+      }
       if (!n) return list.slice(0, limit);
       return list.filter((u) => {
-        const hay = `${u.nombre} ${u.apellido} ${u.email || ''} ${u.cargo || ''}`.toLowerCase();
+        const hay = `${u.nombre} ${u.apellido} ${u.email || ''} ${u.cargo || ''} ${u.rol || ''} ${u.departamento || ''}`.toLowerCase();
         return hay.includes(n);
       }).slice(0, limit);
     }
+
+    function userSearchHaystack(u) {
+      return `${u.nombre} ${u.apellido} ${u.email || ''} ${u.cargo || ''} ${u.rol || ''} ${u.departamento || ''}`.toLowerCase();
+    }
+
+    function bindModalListFilter({ inputId, selectId, rowSelector, getText }) {
+      const input = document.getElementById(inputId);
+      const select = selectId ? document.getElementById(selectId) : null;
+      if (!input && !select) return;
+      const apply = () => {
+        const q = (input?.value || '').trim().toLowerCase();
+        const rol = select?.value || '';
+        let visible = 0;
+        document.querySelectorAll(rowSelector).forEach((row) => {
+          const text = (typeof getText === 'function' ? getText(row) : row.getAttribute('data-search') || row.textContent || '').toLowerCase();
+          const matchQ = !q || text.includes(q);
+          const matchRol = !rol || String(row.getAttribute('data-rol-ids') || row.getAttribute('data-rol-id') || '')
+            .split(',')
+            .map((x) => x.trim())
+            .includes(rol);
+          const show = matchQ && matchRol;
+          row.hidden = !show;
+          if (show) visible += 1;
+        });
+        const empty = document.querySelector(`[data-empty-for="${inputId}"]`);
+        if (empty) empty.hidden = visible > 0;
+      };
+      input?.addEventListener('input', apply);
+      select?.addEventListener('change', apply);
+      apply();
+    }
+
+    function bindAllListFilters() {
+      bindModalListFilter({ inputId: 'usersListSearch', selectId: 'usersListRolFilter', rowSelector: '#usersTableBody tr[data-search]' });
+      bindModalListFilter({ inputId: 'rolesListSearch', rowSelector: '#rolesTableBody tr[data-search]' });
+      bindModalListFilter({ inputId: 'matsListSearch', rowSelector: '#matsTableBody tr[data-search]' });
+      bindModalListFilter({ inputId: 'cecosListSearch', rowSelector: '#cecosTableBody tr[data-search]' });
+      bindModalListFilter({ inputId: 'provsListSearch', rowSelector: '#provsTableBody tr[data-search]' });
+      bindModalListFilter({ inputId: 'flotaListSearch', rowSelector: '#flotaTableBody tr[data-search]' });
+    }
+
+    const PERM_MOD_ICONS = {
+      Materiales: 'fa-boxes-stacked',
+      Compras: 'fa-cart-shopping',
+      'Camión Pluma': 'fa-truck-ramp-box',
+      SSGG: 'fa-screwdriver-wrench',
+      Flota: 'fa-truck',
+      'Portal Proveedores': 'fa-store',
+      Facturas: 'fa-file-invoice-dollar',
+      General: 'fa-shield-halved'
+    };
 
     function renderPermisosList() {
       const list = state.permisos || [];
@@ -181,37 +228,85 @@
         byMod[m].push(p);
       });
       return Object.keys(byMod).map((mod) => `
-        <div class="perm-mod">
-          <h3 class="perm-mod-title">${mod}</h3>
+        <section class="perm-mod" data-perm-mod="${escapeHtml(mod)}">
+          <header class="perm-mod-head">
+            <span class="perm-mod-icon"><i class="fas ${PERM_MOD_ICONS[mod] || PERM_MOD_ICONS.General}"></i></span>
+            <div>
+              <h3 class="perm-mod-title">${escapeHtml(mod)}</h3>
+              <p class="perm-mod-sub">${byMod[mod].length} permiso${byMod[mod].length === 1 ? '' : 's'}</p>
+            </div>
+          </header>
+          <div class="perm-mod-grid">
           ${byMod[mod].map((p) => `
-            <div class="perm-card" data-codigo="${p.codigo}">
-              <div class="perm-card-head">
-                <strong>${escapeHtml(p.titulo)}</strong>
-                <code class="perm-code">${escapeHtml(p.codigo)}</code>
+            <article class="perm-card" data-codigo="${p.codigo}" data-perm-search="${escapeHtml(`${p.titulo} ${p.descripcion || ''} ${(p.usuarios || []).map((u) => u.nombre).join(' ')}`)}">
+              <div class="perm-card-top">
+                <h4 class="perm-card-title">${escapeHtml(p.titulo)}</h4>
+                ${p.flag ? `<span class="perm-flag-badge" title="Flag de usuario">${escapeHtml(String(p.flag).replace('flag_', ''))}</span>` : ''}
               </div>
               <p class="perm-desc">${escapeHtml(p.descripcion || '')}</p>
+              <div class="perm-users-label">Personas asignadas</div>
               <div class="perm-users">
                 ${(p.usuarios || []).map((u) => `
-                  <span class="perm-chip">
-                    ${escapeHtml(u.nombre)}${u.titular ? ' <em>(titular)</em>' : ''}
+                  <span class="perm-chip${u.titular ? ' is-titular' : ''}">
+                    <span class="perm-chip-name">${escapeHtml(u.nombre)}</span>
+                    ${u.cargo ? `<span class="perm-chip-meta">${escapeHtml(u.cargo)}</span>` : ''}
+                    ${u.titular ? '<span class="perm-chip-tag">Titular</span>' : ''}
                     <button type="button" class="perm-chip-x" title="Quitar"
                       data-quitar-perm="${p.codigo}" data-quitar-uid="${u.usuario_id}">&times;</button>
                   </span>
-                `).join('') || '<span class="muted">Sin personas asignadas</span>'}
+                `).join('') || '<span class="perm-empty">Nadie asignado aún</span>'}
               </div>
               <div class="perm-add">
                 <div class="perm-user-picker">
-                  <input type="text" class="perm-user-search" placeholder="Buscar persona por nombre o email…"
-                    autocomplete="off" data-perm-search="${p.codigo}">
+                  <div class="cfg-search-wrap perm-search-inline">
+                    <i class="fas fa-search"></i>
+                    <input type="text" class="perm-user-search" placeholder="Buscar por nombre, cargo o rol…"
+                      autocomplete="off" data-perm-search="${p.codigo}">
+                  </div>
                   <input type="hidden" data-perm-user-id="${p.codigo}" value="">
                   <div class="perm-user-dropdown" data-perm-dropdown="${p.codigo}" hidden></div>
                 </div>
-                <button type="button" class="btn btn-primary btn-sm" data-add-perm="${p.codigo}">Asignar</button>
+                <button type="button" class="btn btn-primary btn-sm perm-assign-btn" data-add-perm="${p.codigo}">
+                  <i class="fas fa-user-plus"></i> Asignar
+                </button>
               </div>
-            </div>
+            </article>
           `).join('')}
-        </div>
+          </div>
+        </section>
       `).join('');
+    }
+
+    function bindPermGlobalSearch() {
+      const input = document.getElementById('permGlobalSearch');
+      const select = document.getElementById('permGlobalRolFilter');
+      if (!input) return;
+      const apply = () => {
+        const q = input.value.trim().toLowerCase();
+        const rolId = select?.value || '';
+        document.querySelectorAll('.perm-card').forEach((card) => {
+          const text = (card.getAttribute('data-perm-search') || card.textContent || '').toLowerCase();
+          const matchQ = !q || text.includes(q);
+          let matchRol = true;
+          if (rolId) {
+            matchRol = false;
+            card.querySelectorAll('[data-quitar-uid]').forEach((btn) => {
+              const u = state.users.find((x) => String(x.id) === String(btn.getAttribute('data-quitar-uid')));
+              if (u && (
+                String(u.rol_id) === rolId
+                || (Array.isArray(u.rol_ids) && u.rol_ids.map(String).includes(rolId))
+              )) matchRol = true;
+            });
+          }
+          card.classList.toggle('perm-filtered-out', !(matchQ && matchRol));
+        });
+        document.querySelectorAll('.perm-mod').forEach((mod) => {
+          const visible = mod.querySelectorAll('.perm-card:not(.perm-filtered-out)').length;
+          mod.classList.toggle('perm-filtered-out', visible === 0);
+        });
+      };
+      input.addEventListener('input', apply);
+      select?.addEventListener('change', apply);
     }
 
     function bindPermUserSearch() {
@@ -227,9 +322,10 @@
           } else {
             dropdown.innerHTML = items.map((u) => {
               const label = `${u.nombre} ${u.apellido}`.trim();
+              const meta = [u.cargo, u.rol, u.email].filter(Boolean).join(' · ');
               return `<button type="button" class="perm-user-option" data-pick-uid="${u.id}">
                 <span class="perm-user-option-name">${escapeHtml(label)}</span>
-                <span class="perm-user-option-meta">${escapeHtml(u.email || '')}${u.cargo ? ' · ' + escapeHtml(u.cargo) : ''}</span>
+                <span class="perm-user-option-meta">${escapeHtml(meta)}</span>
               </button>`;
             }).join('');
             dropdown.querySelectorAll('.perm-user-option').forEach((btn, idx) => {
@@ -247,9 +343,9 @@
 
         input.oninput = () => {
           hidden.value = '';
-          showList(filterUsersByQuery(input.value));
+          showList(filterUsersByQuery(input.value, 20));
         };
-        input.onfocus = () => showList(filterUsersByQuery(input.value));
+        input.onfocus = () => showList(filterUsersByQuery(input.value, 20));
       });
 
       if (!window.__permPickerCloseBound) {
@@ -281,14 +377,16 @@
       content.innerHTML = '<div class="empty"><i class="fas fa-spinner fa-spin"></i> Cargando...</div>';
       try {
         const settled = await Promise.allSettled([
-          Auth.api('/api/modulos/config/resumen'),
+          Auth.api('/api/modulos/config/resumen', { noCache: true }),
           UI.loadCecos(),
           UI.loadMateriales(),
           UI.loadProveedores(),
-          UI.loadUsuarios(),
-          Auth.api('/api/modulos/config/roles'),
-          Auth.api('/api/modulos/config/departamentos'),
-          Auth.api('/api/modulos/config/permisos-especiales')
+          Auth.api('/api/catalogos/usuarios', { noCache: true }).then((r) => r.data || []),
+          Auth.api('/api/modulos/config/roles', { noCache: true }),
+          Auth.api('/api/modulos/config/departamentos', { noCache: true }),
+          Auth.api('/api/modulos/config/permisos-especiales', { noCache: true }),
+          Auth.api('/api/modulos/checklist/catalogo?list=1', { noCache: true }),
+          Auth.api('/api/auth/empresas').then((r) => r.empresas || [])
         ]);
         const val = (i, fb) => (settled[i].status === 'fulfilled' ? settled[i].value : fb);
         state.resumen = val(0, { data: {} }).data || {};
@@ -299,6 +397,16 @@
         state.roles = val(5, { data: [] }).data || [];
         state.depts = val(6, { data: [] }).data || [];
         state.permisos = val(7, { data: [] }).data || [];
+        const cat = val(8, { total: 0, data: [] });
+        state.empresasList = val(9, []);
+        state.flotaCatalogo = {
+          total: cat.total || 0,
+          ultima_carga: cat.ultima_carga || null,
+          archivo_nombre: cat.archivo_nombre || null,
+          cargado_por_nombre: cat.cargado_por_nombre || null,
+          alert_email: cat.alert_email || 'flota@serviciossercom.cl',
+          data: cat.data || []
+        };
         const failed = settled.map((r, i) => r.status === 'rejected' ? r.reason?.message : null).filter(Boolean);
         render(failed);
       } catch (err) {
@@ -326,7 +434,7 @@
             <span class="cfg-tile-icon" style="background:#0284c7"><i class="fas fa-users"></i></span>
             <span class="cfg-tile-body">
               <strong>Usuarios y perfiles</strong>
-              <small>${state.users.length} registros · roles y atributos</small>
+              <small>${state.users.length} registros · cargo, rol y departamento</small>
             </span>
             <i class="fas fa-chevron-right cfg-tile-arrow"></i>
           </button>
@@ -335,6 +443,22 @@
             <span class="cfg-tile-body">
               <strong>Roles</strong>
               <small>${state.roles.length} roles del sistema</small>
+            </span>
+            <i class="fas fa-chevron-right cfg-tile-arrow"></i>
+          </button>
+          <button type="button" class="cfg-tile" data-open="modalModulosEmpresa">
+            <span class="cfg-tile-icon" style="background:#0369a1"><i class="fas fa-th-large"></i></span>
+            <span class="cfg-tile-body">
+              <strong>Módulos visibles</strong>
+              <small>Qué módulos se muestran en esta empresa</small>
+            </span>
+            <i class="fas fa-chevron-right cfg-tile-arrow"></i>
+          </button>
+          <button type="button" class="cfg-tile" data-open="modalModulosCompartidos">
+            <span class="cfg-tile-icon" style="background:#0e7490"><i class="fas fa-share-alt"></i></span>
+            <span class="cfg-tile-body">
+              <strong>Módulos compartidos</strong>
+              <small>Misma data SERCOM en todas las empresas</small>
             </span>
             <i class="fas fa-chevron-right cfg-tile-arrow"></i>
           </button>
@@ -370,6 +494,22 @@
             </span>
             <i class="fas fa-chevron-right cfg-tile-arrow"></i>
           </button>
+          <button type="button" class="cfg-tile" data-open="modalFlotaExcel">
+            <span class="cfg-tile-icon" style="background:#059669"><i class="fas fa-file-excel"></i></span>
+            <span class="cfg-tile-body">
+              <strong>Catálogo flota (Excel)</strong>
+              <small>${state.flotaCatalogo.total || 0} vehículos${state.flotaCatalogo.archivo_nombre ? ' · ' + escapeHtml(state.flotaCatalogo.archivo_nombre) : ''}</small>
+            </span>
+            <i class="fas fa-chevron-right cfg-tile-arrow"></i>
+          </button>
+          <button type="button" class="cfg-tile" data-open="modalNotifAlertas">
+            <span class="cfg-tile-icon" style="background:#dc2626"><i class="fas fa-bell"></i></span>
+            <span class="cfg-tile-body">
+              <strong>Alertas de notificación</strong>
+              <small>Por rol y módulo · siempre / nunca / seleccionar</small>
+            </span>
+            <i class="fas fa-chevron-right cfg-tile-arrow"></i>
+          </button>
         </div>
 
         <!-- Modal Usuarios -->
@@ -379,31 +519,44 @@
             <header class="cfg-modal-head">
               <div>
                 <h2>Usuarios y perfiles</h2>
-                <p>Crea usuarios o edita atributos operativos</p>
+                <p>Datos de acceso. Los permisos operativos se gestionan en «Permisos especiales».</p>
               </div>
               <button type="button" class="cfg-modal-x" data-close aria-label="Cerrar">&times;</button>
             </header>
             <div class="cfg-modal-body">
-              <div class="cfg-modal-actions">
+              <div class="cfg-modal-actions cfg-list-toolbar">
+                <div class="cfg-search-wrap">
+                  <i class="fas fa-search"></i>
+                  <input type="search" id="usersListSearch" placeholder="Buscar nombre, email o cargo…" autocomplete="off">
+                </div>
+                <select id="usersListRolFilter" class="cfg-filter-select">
+                  <option value="">Todos los roles</option>
+                  ${state.roles.map((r) => `<option value="${r.id}">${escapeHtml(r.nombre)}</option>`).join('')}
+                </select>
+                <button type="button" class="btn btn-outline btn-sm" id="btnUsersPlantilla" title="Descargar plantilla Excel"><i class="fas fa-download"></i> Plantilla</button>
+                <button type="button" class="btn btn-outline btn-sm" id="btnUsersExcel" title="Subir usuarios desde Excel"><i class="fas fa-file-excel"></i> Subir Excel</button>
+                <input type="file" id="usersExcelFile" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
                 <button type="button" class="btn btn-primary" id="btnNewUser"><i class="fas fa-user-plus"></i> Nuevo usuario</button>
               </div>
               <div class="table-wrap">
                 <table class="data">
-                  <thead><tr><th>Nombre</th><th>Email</th><th>Rol</th><th>Atributos</th><th></th></tr></thead>
-                  <tbody>
+                  <thead><tr><th>Nombre</th><th>Email</th><th>Cargo</th><th>Rol</th><th>Empresas</th><th></th></tr></thead>
+                  <tbody id="usersTableBody">
                     ${state.users.map((u) => `
-                      <tr>
-                        <td><strong>${u.nombre} ${u.apellido}</strong><div class="muted">${u.cargo || ''}</div></td>
-                        <td>${u.email}</td>
-                        <td>${u.rol || '—'}</td>
-                        <td>${chips(u)}</td>
+                      <tr data-search="${escapeHtml(userSearchHaystack(u))}" data-rol-id="${u.rol_id || ''}" data-rol-ids="${escapeHtml((u.rol_ids || (u.rol_id ? [u.rol_id] : [])).join(','))}">
+                        <td><strong>${escapeHtml(u.nombre)} ${escapeHtml(u.apellido)}</strong></td>
+                        <td>${escapeHtml(u.email || '')}</td>
+                        <td>${escapeHtml(u.cargo || '—')}</td>
+                        <td>${escapeHtml(u.rol || '—')}</td>
+                        <td>${escapeHtml((u.empresas_acceso || []).map((s) => (state.empresasList.find((c) => c.slug === s)?.name || s)).join(', ') || '—')}</td>
                         <td class="cfg-row-actions">
                           <button type="button" class="btn btn-outline btn-sm" data-edit-user='${encodeURIComponent(JSON.stringify(u))}'>Editar</button>
                           <button type="button" class="btn btn-danger btn-sm" data-del-user="${u.id}" data-del-name="${(u.nombre + ' ' + u.apellido).replace(/"/g, '')}" ${u.id === user.id ? 'disabled title="No puedes eliminarte"' : ''}>Eliminar</button>
                         </td>
-                      </tr>`).join('') || UI.emptyRow(5, 'Sin usuarios')}
+                      </tr>`).join('') || '<tr data-search=""><td colspan="6" class="empty">Sin usuarios</td></tr>'}
                   </tbody>
                 </table>
+                <p class="cfg-filter-empty muted" data-empty-for="usersListSearch" hidden>Sin resultados para el filtro aplicado.</p>
               </div>
             </div>
           </div>
@@ -421,17 +574,21 @@
               <button type="button" class="cfg-modal-x" data-close aria-label="Cerrar">&times;</button>
             </header>
             <div class="cfg-modal-body">
-              <div class="cfg-modal-actions">
+              <div class="cfg-modal-actions cfg-list-toolbar">
+                <div class="cfg-search-wrap">
+                  <i class="fas fa-search"></i>
+                  <input type="search" id="rolesListSearch" placeholder="Buscar rol…" autocomplete="off">
+                </div>
                 <button type="button" class="btn btn-primary" id="btnNewRole"><i class="fas fa-plus"></i> Nuevo rol</button>
               </div>
               <div class="table-wrap" style="max-height:480px;overflow:auto">
                 <table class="data">
                   <thead><tr><th>Rol</th><th>Descripción</th><th></th></tr></thead>
-                  <tbody>
+                  <tbody id="rolesTableBody">
                     ${state.roles.map((r) => `
-                      <tr>
-                        <td><strong>${r.nombre}</strong></td>
-                        <td>${r.descripcion || '—'}</td>
+                      <tr data-search="${escapeHtml(`${r.nombre} ${r.descripcion || ''}`.toLowerCase())}">
+                        <td><strong>${escapeHtml(r.nombre)}</strong></td>
+                        <td>${escapeHtml(r.descripcion || '—')}</td>
                         <td class="cfg-row-actions">
                           <button type="button" class="btn btn-outline btn-sm" data-edit-role='${encodeURIComponent(JSON.stringify(r))}'>Editar</button>
                           <button type="button" class="btn btn-danger btn-sm" data-del-role="${r.id}" data-del-name="${String(r.nombre || '').replace(/"/g, '')}">Eliminar</button>
@@ -444,10 +601,58 @@
           </div>
         </div>
 
+        <!-- Modal módulos visibles de la empresa -->
+        <div class="cfg-modal" id="modalModulosEmpresa" role="dialog" aria-modal="true">
+          <div class="cfg-modal-backdrop" data-close></div>
+          <div class="cfg-modal-panel cfg-modal-md">
+            <header class="cfg-modal-head">
+              <div>
+                <h2>Módulos visibles</h2>
+                <p>Define qué módulos aparecen en el menú de <strong>${escapeHtml(user.empresaNombre || user.empresa || '')}</strong>. Aplica a todos los usuarios de esta empresa.</p>
+              </div>
+              <button type="button" class="cfg-modal-x" data-close aria-label="Cerrar">&times;</button>
+            </header>
+            <div class="cfg-modal-body">
+              <div class="cfg-list-toolbar" style="margin-bottom:.75rem">
+                <button type="button" class="btn btn-outline btn-sm" id="btnModulosAll">Marcar todos</button>
+                <button type="button" class="btn btn-outline btn-sm" id="btnModulosNone">Solo obligatorios</button>
+              </div>
+              <div id="modulosEmpresaHost" class="cfg-roles-multi" style="max-height:420px;overflow:auto"></div>
+              <p class="muted" style="margin-top:.75rem;font-size:.8rem">Inicio, Configuraciones, Perfil e Incidencias siempre quedan activos. Los módulos compartidos (data SERCOM) no se pueden ocultar aquí.</p>
+            </div>
+            <footer class="cfg-modal-footer">
+              <button type="button" class="btn btn-secondary" data-close>Cancelar</button>
+              <button type="button" class="btn btn-primary" id="btnSaveModulosEmpresa"><i class="fas fa-save"></i> Guardar</button>
+            </footer>
+          </div>
+        </div>
+
+        <!-- Modal módulos compartidos (todas las empresas / data SERCOM) -->
+        <div class="cfg-modal" id="modalModulosCompartidos" role="dialog" aria-modal="true">
+          <div class="cfg-modal-backdrop" data-close></div>
+          <div class="cfg-modal-panel cfg-modal-md">
+            <header class="cfg-modal-head">
+              <div>
+                <h2>Módulos compartidos</h2>
+                <p>Marca los módulos que deben verse en <strong>todas las empresas</strong> con la <strong>misma data de SERCOM</strong> (ej. Agenda Camión Pluma).</p>
+              </div>
+              <button type="button" class="cfg-modal-x" data-close aria-label="Cerrar">&times;</button>
+            </header>
+            <div class="cfg-modal-body">
+              <div id="modulosCompartidosHost" class="cfg-roles-multi" style="max-height:420px;overflow:auto"></div>
+              <p class="muted" style="margin-top:.75rem;font-size:.8rem">La configuración se guarda en SERCOM y aplica al instante a Global, Nexus, Táctica e Intercanje.</p>
+            </div>
+            <footer class="cfg-modal-footer">
+              <button type="button" class="btn btn-secondary" data-close>Cancelar</button>
+              <button type="button" class="btn btn-primary" id="btnSaveModulosCompartidos"><i class="fas fa-save"></i> Guardar</button>
+            </footer>
+          </div>
+        </div>
+
         <!-- Modal crear/editar rol (solo se abre al pulsar Nuevo / Editar) -->
         <div class="cfg-modal" id="modalRoleForm" role="dialog" aria-modal="true">
           <div class="cfg-modal-backdrop" data-close-roleform></div>
-          <div class="cfg-modal-panel">
+          <div class="cfg-modal-panel cfg-modal-md">
             <header class="cfg-modal-head">
               <div>
                 <h2 id="roleFormTitle">Nuevo rol</h2>
@@ -480,7 +685,7 @@
           <div class="cfg-modal-backdrop" data-close-userform></div>
           <div class="cfg-modal-panel cfg-modal-sm">
             <header class="cfg-modal-head">
-              <div><h2 id="userFormTitle">Nuevo usuario</h2><p>Datos y visibilidad en módulos</p></div>
+              <div><h2 id="userFormTitle">Nuevo usuario</h2><p>Datos de acceso. Permisos en «Permisos especiales».</p></div>
               <button type="button" class="cfg-modal-x" data-close-userform>&times;</button>
             </header>
             <div class="cfg-modal-body">
@@ -499,13 +704,32 @@
                   <div class="form-group"><label>Teléfono</label><input id="uTelefono"></div>
                 </div>
                 <div class="form-row cols-2">
-                  <div class="form-group"><label>Rol</label><select id="uRol">${UI.optionList(state.roles,'id',x=>x.nombre)}</select></div>
+                  <div class="form-group">
+                    <label>Roles *</label>
+                    <div id="uRolesBox" class="cfg-roles-multi">
+                      ${state.roles.map((r) => `
+                        <label class="cfg-role-check">
+                          <input type="checkbox" name="uRol" value="${r.id}">
+                          <span>${escapeHtml(r.nombre)}</span>
+                        </label>`).join('') || '<span class="muted">Sin roles</span>'}
+                    </div>
+                    <small class="muted">Puede marcar varios. El primero marcado queda como rol principal.</small>
+                  </div>
                   <div class="form-group"><label>Departamento</label>
                     <select id="uDept"><option value="">—</option>${UI.optionList(state.depts,'id',x=>x.nombre)}</select>
                   </div>
                 </div>
-                <h3 class="flags-title">Atributos operativos</h3>
-                ${flagsHtml('uf')}
+                <div class="form-group">
+                  <label>Empresas con acceso *</label>
+                  <div id="uEmpresasBox" class="cfg-roles-multi">
+                    ${(state.empresasList || []).map((c) => `
+                      <label class="cfg-role-check">
+                        <input type="checkbox" name="uEmpresa" value="${escapeHtml(c.slug)}">
+                        <span>${escapeHtml(c.name)}</span>
+                      </label>`).join('') || '<span class="muted">Sin empresas</span>'}
+                  </div>
+                  <small class="muted">Marca las empresas donde podrá iniciar sesión. Si hay BD separadas, el usuario se crea en cada una.</small>
+                </div>
                 <div class="cfg-modal-footer">
                   <button type="button" class="btn btn-secondary" data-close-userform>Cancelar</button>
                   <button type="submit" class="btn btn-primary">Guardar</button>
@@ -526,8 +750,18 @@
               </div>
               <button type="button" class="cfg-modal-x" data-close aria-label="Cerrar">&times;</button>
             </header>
-            <div class="cfg-modal-body">
-              ${renderPermisosList()}
+            <div class="cfg-modal-body perm-modal-body">
+              <div class="perm-toolbar cfg-list-toolbar">
+                <div class="cfg-search-wrap">
+                  <i class="fas fa-search"></i>
+                  <input type="search" id="permGlobalSearch" placeholder="Buscar permiso o persona…" autocomplete="off">
+                </div>
+                <select id="permGlobalRolFilter" class="cfg-filter-select">
+                  <option value="">Todos los roles</option>
+                  ${state.roles.map((r) => `<option value="${r.id}">${escapeHtml(r.nombre)}</option>`).join('')}
+                </select>
+              </div>
+              <div class="perm-host">${renderPermisosList()}</div>
             </div>
           </div>
         </div>
@@ -537,7 +771,7 @@
           <div class="cfg-modal-backdrop" data-close></div>
           <div class="cfg-modal-panel">
             <header class="cfg-modal-head">
-              <div><h2>Materiales</h2><p>Alta rápida de ítems</p></div>
+              <div><h2>Materiales / Inventario</h2><p>Alta rápida o carga masiva por Excel</p></div>
               <button type="button" class="cfg-modal-x" data-close>&times;</button>
             </header>
             <div class="cfg-modal-body">
@@ -549,13 +783,23 @@
                 <input type="number" id="mStock" placeholder="Stock" style="max-width:90px">
                 <button class="btn btn-primary" type="submit">Agregar</button>
               </form>
-              <div class="table-wrap" style="margin-top:1rem;max-height:360px;overflow:auto">
+              <div class="cfg-list-toolbar" style="margin-top:0.85rem">
+                <div class="cfg-search-wrap">
+                  <i class="fas fa-search"></i>
+                  <input type="search" id="matsListSearch" placeholder="Buscar código o nombre…" autocomplete="off">
+                </div>
+                <button type="button" class="btn btn-outline btn-sm" id="btnMatsPlantilla"><i class="fas fa-download"></i> Plantilla</button>
+                <button type="button" class="btn btn-outline btn-sm" id="btnMatsExcel"><i class="fas fa-file-excel"></i> Subir Excel</button>
+                <input type="file" id="matsExcelFile" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
+              </div>
+              <div class="table-wrap" style="max-height:360px;overflow:auto">
                 <table class="data">
                   <thead><tr><th>Código</th><th>Nombre</th><th>Unidad</th></tr></thead>
-                  <tbody>
-                    ${state.mats.slice(0, 80).map((m) => `<tr><td>${m.codigo}</td><td>${m.nombre}</td><td>${m.unidad || 'UN'}</td></tr>`).join('') || UI.emptyRow(3)}
+                  <tbody id="matsTableBody">
+                    ${state.mats.map((m) => `<tr data-search="${escapeHtml(`${m.codigo} ${m.nombre}`.toLowerCase())}"><td>${escapeHtml(m.codigo)}</td><td>${escapeHtml(m.nombre)}</td><td>${escapeHtml(m.unidad || 'UN')}</td></tr>`).join('') || '<tr data-search=""><td colspan="3" class="empty">Sin materiales</td></tr>'}
                   </tbody>
                 </table>
+                <p class="cfg-filter-empty muted" data-empty-for="matsListSearch" hidden>Sin resultados.</p>
               </div>
             </div>
           </div>
@@ -575,13 +819,20 @@
                 <input id="cNombre" placeholder="Nombre *" required>
                 <button class="btn btn-primary" type="submit">Agregar</button>
               </form>
-              <div class="table-wrap" style="margin-top:1rem;max-height:360px;overflow:auto">
+              <div class="cfg-list-toolbar" style="margin-top:0.85rem">
+                <div class="cfg-search-wrap">
+                  <i class="fas fa-search"></i>
+                  <input type="search" id="cecosListSearch" placeholder="Buscar código o nombre…" autocomplete="off">
+                </div>
+              </div>
+              <div class="table-wrap" style="max-height:360px;overflow:auto">
                 <table class="data">
                   <thead><tr><th>Código</th><th>Nombre</th></tr></thead>
-                  <tbody>
-                    ${state.cecos.map((c) => `<tr><td>${c.codigo}</td><td>${c.nombre}</td></tr>`).join('') || UI.emptyRow(2)}
+                  <tbody id="cecosTableBody">
+                    ${state.cecos.map((c) => `<tr data-search="${escapeHtml(`${c.codigo} ${c.nombre}`.toLowerCase())}"><td>${escapeHtml(c.codigo)}</td><td>${escapeHtml(c.nombre)}</td></tr>`).join('') || '<tr data-search=""><td colspan="2" class="empty">Sin CECOs</td></tr>'}
                   </tbody>
                 </table>
+                <p class="cfg-filter-empty muted" data-empty-for="cecosListSearch" hidden>Sin resultados.</p>
               </div>
             </div>
           </div>
@@ -602,15 +853,117 @@
                 <input id="pEmail" placeholder="Email">
                 <button class="btn btn-primary" type="submit">Agregar</button>
               </form>
-              <div class="table-wrap" style="margin-top:1rem;max-height:360px;overflow:auto">
+              <div class="cfg-list-toolbar" style="margin-top:0.85rem">
+                <div class="cfg-search-wrap">
+                  <i class="fas fa-search"></i>
+                  <input type="search" id="provsListSearch" placeholder="Buscar nombre, RUT o email…" autocomplete="off">
+                </div>
+              </div>
+              <div class="table-wrap" style="max-height:360px;overflow:auto">
                 <table class="data">
                   <thead><tr><th>Nombre</th><th>RUT</th><th>Email</th></tr></thead>
-                  <tbody>
-                    ${state.provs.map((p) => `<tr><td>${p.razon_social || p.nombre || ''}</td><td>${p.rut || ''}</td><td>${p.email || '—'}</td></tr>`).join('') || UI.emptyRow(3)}
+                  <tbody id="provsTableBody">
+                    ${state.provs.map((p) => {
+                      const nombre = p.razon_social || p.nombre || '';
+                      return `<tr data-search="${escapeHtml(`${nombre} ${p.rut || ''} ${p.email || ''}`.toLowerCase())}"><td>${escapeHtml(nombre)}</td><td>${escapeHtml(p.rut || '')}</td><td>${escapeHtml(p.email || '—')}</td></tr>`;
+                    }).join('') || '<tr data-search=""><td colspan="3" class="empty">Sin proveedores</td></tr>'}
                   </tbody>
                 </table>
+                <p class="cfg-filter-empty muted" data-empty-for="provsListSearch" hidden>Sin resultados.</p>
               </div>
             </div>
+          </div>
+        </div>
+
+        <!-- Modal Catálogo Flota Excel -->
+        <div class="cfg-modal" id="modalFlotaExcel" role="dialog" aria-modal="true">
+          <div class="cfg-modal-backdrop" data-close></div>
+          <div class="cfg-modal-panel cfg-modal-lg">
+            <header class="cfg-modal-head">
+              <div>
+                <h2>Catálogo flota (Excel)</h2>
+                <p>Cargue patentes y modelos. Si una patente no está en el archivo, se avisa a ${escapeHtml(state.flotaCatalogo.alert_email)}.</p>
+              </div>
+              <button type="button" class="cfg-modal-x" data-close aria-label="Cerrar">&times;</button>
+            </header>
+            <div class="cfg-modal-body">
+              ${state.flotaCatalogo.archivo_nombre ? `
+              <div class="ck-catalogo-file">
+                <div class="ck-catalogo-file-main">
+                  <i class="fas fa-file-excel"></i>
+                  <div>
+                    <strong>${escapeHtml(state.flotaCatalogo.archivo_nombre)}</strong>
+                    <small>${state.flotaCatalogo.total || 0} vehículos
+                      ${state.flotaCatalogo.ultima_carga ? ' · ' + escapeHtml(String(state.flotaCatalogo.ultima_carga)) : ''}
+                      ${state.flotaCatalogo.cargado_por_nombre ? ' · ' + escapeHtml(state.flotaCatalogo.cargado_por_nombre) : ''}
+                    </small>
+                  </div>
+                </div>
+                <button type="button" class="btn btn-danger btn-sm" id="cfgBtnEliminarFlota" title="Eliminar catálogo"><i class="fas fa-trash"></i> Eliminar</button>
+              </div>` : `
+              <div class="ck-catalogo-stats" id="cfgFlotaStats">
+                <b>0</b> vehículos · Sin Excel cargado · Alertas: ${escapeHtml(state.flotaCatalogo.alert_email)}
+              </div>`}
+              <div class="cfg-modal-actions cfg-list-toolbar" style="flex-wrap:wrap;gap:0.65rem">
+                <button type="button" class="btn btn-outline" id="cfgBtnPlantillaFlota"><i class="fas fa-download"></i> Descargar plantilla</button>
+                <input type="file" id="cfgExcelFlota" accept=".xlsx,.xls" hidden>
+                <button type="button" class="btn btn-primary" id="cfgBtnSubirFlota"><i class="fas fa-upload"></i> ${state.flotaCatalogo.archivo_nombre ? 'Reemplazar Excel' : 'Subir Excel'}</button>
+                <div class="cfg-search-wrap" style="margin-left:auto;min-width:200px">
+                  <i class="fas fa-search"></i>
+                  <input type="search" id="flotaListSearch" placeholder="Buscar patente / modelo…" autocomplete="off">
+                </div>
+              </div>
+              <p class="muted" style="font-size:0.82rem;margin:0.5rem 0 0.85rem">Se leen <strong>todas las hojas</strong> del Excel. Columna obligatoria: <strong>Patente</strong>. Recomendadas: Modelo, Marca, Tipo, Año, Propietario, RUT. Al poner la patente en Checklist Flota se autocompleta desde este catálogo.</p>
+              <div class="table-wrap" style="max-height:420px;overflow:auto">
+                <table class="data">
+                  <thead><tr><th>Patente</th><th>Modelo</th><th>Marca</th><th>Tipo</th><th>Año</th><th>Propietario</th></tr></thead>
+                  <tbody id="flotaTableBody">
+                    ${(state.flotaCatalogo.data || []).map((v) => `
+                      <tr data-search="${escapeHtml(`${v.patente} ${v.modelo || ''} ${v.marca || ''} ${v.propietario_nombre || ''}`.toLowerCase())}">
+                        <td><strong>${escapeHtml(v.patente)}</strong></td>
+                        <td>${escapeHtml(v.modelo || '—')}</td>
+                        <td>${escapeHtml(v.marca || '—')}</td>
+                        <td>${escapeHtml(v.tipo || '—')}</td>
+                        <td>${escapeHtml(v.anio || '—')}</td>
+                        <td>${escapeHtml(v.propietario_nombre || '—')}</td>
+                      </tr>`).join('') || '<tr data-search=""><td colspan="6" class="empty">Sin vehículos. Descargue la plantilla y suba el Excel.</td></tr>'}
+                  </tbody>
+                </table>
+                <p class="cfg-filter-empty muted" data-empty-for="flotaListSearch" hidden>Sin resultados.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Modal Alertas de notificación -->
+        <div class="cfg-modal" id="modalNotifAlertas" role="dialog" aria-modal="true">
+          <div class="cfg-modal-backdrop" data-close></div>
+          <div class="cfg-modal-panel cfg-modal-lg">
+            <header class="cfg-modal-head">
+              <div>
+                <h2><i class="fas fa-bell"></i> Alertas de notificación</h2>
+                <p>Elige un rol y configura por módulo: Siempre, Nunca o Seleccionar (estado / cantidad / tipo).</p>
+              </div>
+              <button type="button" class="cfg-modal-x" data-close aria-label="Cerrar">&times;</button>
+            </header>
+            <div class="cfg-modal-body">
+              <div class="form-group">
+                <label>Rol</label>
+                <select id="notifRolSelect">
+                  <option value="">Selecciona un rol…</option>
+                  ${state.roles.map((r) => `<option value="${r.id}">${escapeHtml(r.nombre)}</option>`).join('')}
+                </select>
+              </div>
+              <div id="notifModulesHost" class="notif-modules">
+                <p class="home-empty">Selecciona un rol para ver los módulos.</p>
+              </div>
+            </div>
+            <footer class="cfg-modal-footer">
+              <button type="button" class="btn btn-outline" data-close>Cerrar</button>
+              <button type="button" class="btn btn-primary" id="btnSaveNotif" disabled>
+                <i class="fas fa-save"></i> Guardar alertas
+              </button>
+            </footer>
           </div>
         </div>
       `;
@@ -629,20 +982,298 @@
       uPass.value = '';
       uCargo.value = editUser?.cargo || '';
       uTelefono.value = editUser?.telefono || '';
-      uRol.value = String(editUser?.rol_id || state.roles[0]?.id || '');
-      uDept.value = editUser?.departamento_id ? String(editUser.departamento_id) : '';
-      FLAG_LABELS.forEach((f) => {
-        const el = document.getElementById('uf_' + f.key);
-        if (el) el.checked = !!(editUser && editUser[f.key]);
+      const selected = Array.isArray(editUser?.rol_ids) && editUser.rol_ids.length
+        ? editUser.rol_ids.map(String)
+        : (editUser?.rol_id ? [String(editUser.rol_id)] : (state.roles[0] ? [String(state.roles[0].id)] : []));
+      document.querySelectorAll('#uRolesBox input[name="uRol"]').forEach((cb) => {
+        cb.checked = selected.includes(String(cb.value));
       });
+      uDept.value = editUser?.departamento_id ? String(editUser.departamento_id) : '';
+      const empSelected = Array.isArray(editUser?.empresas_acceso) && editUser.empresas_acceso.length
+        ? editUser.empresas_acceso.map(String)
+        : [String(user?.empresa || 'sercom')];
+      document.querySelectorAll('#uEmpresasBox input[name="uEmpresa"]').forEach((cb) => {
+        cb.checked = empSelected.includes(String(cb.value));
+      });
+    }
+
+    function readSelectedRolIds() {
+      return Array.from(document.querySelectorAll('#uRolesBox input[name="uRol"]:checked'))
+        .map((cb) => Number(cb.value))
+        .filter((n) => Number.isFinite(n) && n > 0);
+    }
+
+    function readSelectedEmpresas() {
+      return Array.from(document.querySelectorAll('#uEmpresasBox input[name="uEmpresa"]:checked'))
+        .map((cb) => String(cb.value).toLowerCase())
+        .filter(Boolean);
+    }
+
+    let notifCatalog = [];
+    let notifDraft = {};
+
+    function notifChecks(list, name, selected) {
+      const sel = new Set((selected || []).map(String));
+      return (list || []).map((o) => `
+        <label class="notif-check">
+          <input type="checkbox" data-filt="${name}" value="${escapeHtml(o.id)}" ${sel.has(String(o.id)) ? 'checked' : ''}>
+          <span>${escapeHtml(o.label)}</span>
+        </label>
+      `).join('');
+    }
+
+    function renderNotifModules() {
+      const host = document.getElementById('notifModulesHost');
+      const rolId = document.getElementById('notifRolSelect')?.value;
+      const btn = document.getElementById('btnSaveNotif');
+      if (!host) return;
+      if (!rolId) {
+        host.innerHTML = '<p class="home-empty">Selecciona un rol para ver los módulos.</p>';
+        if (btn) btn.disabled = true;
+        return;
+      }
+      if (btn) btn.disabled = false;
+      host.innerHTML = notifCatalog.map((mod) => {
+        const rule = notifDraft[mod.id] || { modo: 'nunca', filtros: { estados: [], tipos: [], cantidades: [] }, canal: 'ambos' };
+        const modo = rule.modo || 'nunca';
+        return `
+          <section class="notif-mod-card" data-mod="${escapeHtml(mod.id)}">
+            <header class="notif-mod-head">
+              <strong>${escapeHtml(mod.label)}</strong>
+              <div class="notif-modo-group">
+                <label><input type="radio" name="modo_${escapeHtml(mod.id)}" value="siempre" ${modo === 'siempre' ? 'checked' : ''}> Siempre</label>
+                <label><input type="radio" name="modo_${escapeHtml(mod.id)}" value="nunca" ${modo === 'nunca' ? 'checked' : ''}> Nunca</label>
+                <label><input type="radio" name="modo_${escapeHtml(mod.id)}" value="seleccionar" ${modo === 'seleccionar' ? 'checked' : ''}> Seleccionar</label>
+              </div>
+            </header>
+            <div class="notif-select-panel" ${modo === 'seleccionar' ? '' : 'hidden'}>
+              <div class="notif-filt-block">
+                <h4>Por estado</h4>
+                <div class="notif-checks">${notifChecks(mod.estados, 'estados', rule.filtros?.estados)}</div>
+              </div>
+              <div class="notif-filt-block">
+                <h4>Por cantidad</h4>
+                <div class="notif-checks">${notifChecks(mod.cantidades, 'cantidades', rule.filtros?.cantidades)}</div>
+              </div>
+              <div class="notif-filt-block">
+                <h4>Por tipo</h4>
+                <div class="notif-checks">${notifChecks(mod.tipos, 'tipos', rule.filtros?.tipos)}</div>
+              </div>
+              <p class="muted" style="font-size:0.78rem;margin:0.35rem 0 0">Puedes marcar varias opciones. Se notificará si coincide al menos un ítem de cada bloque que hayas usado.</p>
+            </div>
+          </section>`;
+      }).join('');
+
+      host.querySelectorAll('.notif-mod-card').forEach((card) => {
+        const mid = card.dataset.mod;
+        card.querySelectorAll(`input[name="modo_${mid}"]`).forEach((radio) => {
+          radio.addEventListener('change', () => {
+            if (!notifDraft[mid]) notifDraft[mid] = { modo: 'nunca', filtros: { estados: [], tipos: [], cantidades: [] }, canal: 'ambos' };
+            notifDraft[mid].modo = radio.value;
+            const panel = card.querySelector('.notif-select-panel');
+            if (panel) panel.hidden = radio.value !== 'seleccionar';
+          });
+        });
+        card.querySelectorAll('input[data-filt]').forEach((cb) => {
+          cb.addEventListener('change', () => {
+            if (!notifDraft[mid]) notifDraft[mid] = { modo: 'seleccionar', filtros: { estados: [], tipos: [], cantidades: [] }, canal: 'ambos' };
+            const key = cb.dataset.filt;
+            const vals = Array.from(card.querySelectorAll(`input[data-filt="${key}"]:checked`)).map((x) => x.value);
+            notifDraft[mid].filtros = notifDraft[mid].filtros || { estados: [], tipos: [], cantidades: [] };
+            notifDraft[mid].filtros[key] = vals;
+          });
+        });
+      });
+    }
+
+    async function loadModulosEmpresa() {
+      const host = document.getElementById('modulosEmpresaHost');
+      if (!host) return;
+      host.innerHTML = '<p class="muted">Cargando…</p>';
+      try {
+        const res = await Auth.api('/api/modulos/config/modulos-empresa', { noCache: true });
+        const data = res.data || {};
+        const visibles = new Set((data.visibles || []).map(String));
+        const always = new Set((data.always_on || []).map(String));
+        const compartidos = new Set((data.compartidos || []).map(String));
+        const catalog = window.PAGES_CATALOG || [];
+        host.innerHTML = catalog.map((p) => {
+          const locked = always.has(p.key)
+            || compartidos.has(p.key)
+            || /^(home|configuraciones|perfil|incidencias)\.html$/i.test(p.key);
+          const checked = locked || visibles.has(p.key) || !data.configured;
+          const tag = always.has(p.key) || /^(home|configuraciones|perfil|incidencias)\.html$/i.test(p.key)
+            ? ' <small class="muted">(siempre)</small>'
+            : (compartidos.has(p.key) ? ' <small class="muted">(compartido SERCOM)</small>' : '');
+          return `<label class="cfg-role-check">
+            <input type="checkbox" name="modEmpresa" value="${escapeHtml(p.key)}" ${checked ? 'checked' : ''} ${locked ? 'disabled' : ''}>
+            <span>${escapeHtml(p.label)}${tag}</span>
+          </label>`;
+        }).join('');
+        const canEdit = data.can_edit !== false;
+        const saveBtn = document.getElementById('btnSaveModulosEmpresa');
+        if (saveBtn) saveBtn.disabled = !canEdit;
+      } catch (err) {
+        host.innerHTML = `<p class="home-empty">${escapeHtml(err.message)}</p>`;
+      }
+    }
+
+    function readModulosEmpresaChecked() {
+      return Array.from(document.querySelectorAll('#modulosEmpresaHost input[name="modEmpresa"]'))
+        .filter((cb) => cb.checked || cb.disabled)
+        .map((cb) => cb.value);
+    }
+
+    async function loadModulosCompartidos() {
+      const host = document.getElementById('modulosCompartidosHost');
+      if (!host) return;
+      host.innerHTML = '<p class="muted">Cargando…</p>';
+      try {
+        const res = await Auth.api('/api/modulos/config/modulos-compartidos', { noCache: true });
+        const data = res.data || {};
+        const on = new Set((data.compartidos || []).map(String));
+        const supported = new Set((data.data_sercom_supported || ['agenda-camion-pluma.html']).map(String));
+        const skip = /^(home|configuraciones|perfil)\.html$/i;
+        const catalog = window.PAGES_CATALOG || [];
+        host.innerHTML = catalog.filter((p) => !skip.test(p.key)).map((p) => {
+          const checked = on.has(p.key);
+          const dataOk = supported.has(p.key);
+          return `<label class="cfg-role-check">
+            <input type="checkbox" name="modCompartido" value="${escapeHtml(p.key)}" ${checked ? 'checked' : ''}>
+            <span>${escapeHtml(p.label)}${dataOk ? ' <small class="muted">(data SERCOM)</small>' : ' <small class="muted">(solo visible en todas)</small>'}</span>
+          </label>`;
+        }).join('') || '<p class="muted">Sin módulos</p>';
+        const saveBtn = document.getElementById('btnSaveModulosCompartidos');
+        if (saveBtn) saveBtn.disabled = data.can_edit === false;
+      } catch (err) {
+        host.innerHTML = `<p class="home-empty">${escapeHtml(err.message)}</p>`;
+      }
+    }
+
+    function readModulosCompartidosChecked() {
+      return Array.from(document.querySelectorAll('#modulosCompartidosHost input[name="modCompartido"]:checked'))
+        .map((cb) => cb.value);
+    }
+
+    async function loadNotifForRol(rolId) {
+      const host = document.getElementById('notifModulesHost');
+      if (!rolId) {
+        notifDraft = {};
+        renderNotifModules();
+        return;
+      }
+      if (host) host.innerHTML = '<p class="home-empty">Cargando…</p>';
+      try {
+        const { data } = await Auth.api('/api/modulos/config/notificaciones/' + rolId);
+        notifCatalog = data.catalogo || [];
+        notifDraft = {};
+        notifCatalog.forEach((m) => {
+          const found = (data.reglas || []).find((r) => r.modulo === m.id);
+          notifDraft[m.id] = found
+            ? { modo: found.modo, filtros: found.filtros || { estados: [], tipos: [], cantidades: [] }, canal: found.canal || 'ambos' }
+            : { modo: 'nunca', filtros: { estados: [], tipos: [], cantidades: [] }, canal: 'ambos' };
+        });
+        renderNotifModules();
+      } catch (e) {
+        if (host) host.innerHTML = `<p class="home-empty">${escapeHtml(e.message)}</p>`;
+      }
     }
 
     function bindUi() {
       document.querySelectorAll('[data-open]').forEach((btn) => {
-        btn.onclick = () => openModal(btn.getAttribute('data-open'));
+        btn.onclick = () => {
+          const id = btn.getAttribute('data-open');
+          openModal(id);
+          if (id === 'modalNotifAlertas') {
+            const sel = document.getElementById('notifRolSelect');
+            if (sel && !sel.value && state.roles[0]) {
+              sel.value = String(state.roles[0].id);
+            }
+            loadNotifForRol(sel?.value);
+          }
+          if (id === 'modalModulosEmpresa') loadModulosEmpresa();
+          if (id === 'modalModulosCompartidos') loadModulosCompartidos();
+        };
       });
       document.querySelectorAll('[data-close]').forEach((el) => {
         el.onclick = () => closeAllModals();
+      });
+      document.getElementById('notifRolSelect')?.addEventListener('change', (e) => {
+        loadNotifForRol(e.target.value);
+      });
+      document.getElementById('btnModulosAll')?.addEventListener('click', () => {
+        document.querySelectorAll('#modulosEmpresaHost input[name="modEmpresa"]').forEach((cb) => { cb.checked = true; });
+      });
+      document.getElementById('btnModulosNone')?.addEventListener('click', () => {
+        document.querySelectorAll('#modulosEmpresaHost input[name="modEmpresa"]').forEach((cb) => {
+          if (!cb.disabled) cb.checked = false;
+        });
+      });
+      document.getElementById('btnSaveModulosEmpresa')?.addEventListener('click', async () => {
+        try {
+          const visibles = readModulosEmpresaChecked();
+          const res = await Auth.api('/api/modulos/config/modulos-empresa', {
+            method: 'POST',
+            body: JSON.stringify({ visibles })
+          });
+          const u = Auth.getUser() || {};
+          u.modulos_empresa = res.data?.visibles || visibles;
+          u.modulos_empresa_configured = true;
+          u.modulos_compartidos = res.data?.compartidos || u.modulos_compartidos || [];
+          Auth.setUser(u);
+          UI.flash('Módulos de la empresa actualizados');
+          closeAllModals();
+        } catch (err) {
+          UI.flash(err.message, true);
+        }
+      });
+      document.getElementById('btnSaveModulosCompartidos')?.addEventListener('click', async () => {
+        try {
+          const compartidos = readModulosCompartidosChecked();
+          const res = await Auth.api('/api/modulos/config/modulos-compartidos', {
+            method: 'POST',
+            body: JSON.stringify({ compartidos })
+          });
+          const u = Auth.getUser() || {};
+          u.modulos_compartidos = res.data?.compartidos || compartidos;
+          if (Array.isArray(u.modulos_empresa)) {
+            u.modulos_empresa = [...new Set([...(u.modulos_empresa || []), ...(u.modulos_compartidos || [])])];
+          }
+          Auth.setUser(u);
+          UI.flash('Módulos compartidos actualizados (data SERCOM)');
+          closeAllModals();
+        } catch (err) {
+          UI.flash(err.message, true);
+        }
+      });
+
+      document.getElementById('btnSaveNotif')?.addEventListener('click', async () => {
+        const rolId = document.getElementById('notifRolSelect')?.value;
+        if (!rolId) return UI.flash('Selecciona un rol', true);
+        // sync draft from DOM
+        document.querySelectorAll('.notif-mod-card').forEach((card) => {
+          const mid = card.dataset.mod;
+          const modo = card.querySelector(`input[name="modo_${mid}"]:checked`)?.value || 'nunca';
+          const filtros = {
+            estados: Array.from(card.querySelectorAll('input[data-filt="estados"]:checked')).map((x) => x.value),
+            cantidades: Array.from(card.querySelectorAll('input[data-filt="cantidades"]:checked')).map((x) => x.value),
+            tipos: Array.from(card.querySelectorAll('input[data-filt="tipos"]:checked')).map((x) => x.value)
+          };
+          notifDraft[mid] = { modo, filtros, canal: 'ambos' };
+        });
+        const reglas = Object.entries(notifDraft).map(([modulo, r]) => ({
+          modulo,
+          modo: r.modo,
+          filtros: r.filtros,
+          canal: r.canal || 'ambos'
+        }));
+        try {
+          await Auth.api('/api/modulos/config/notificaciones/' + rolId, {
+            method: 'POST',
+            body: JSON.stringify({ reglas })
+          });
+          UI.flash('Alertas de notificación guardadas');
+        } catch (err) { UI.flash(err.message, true); }
       });
       document.querySelectorAll('[data-close-userform]').forEach((el) => {
         el.onclick = () => {
@@ -654,12 +1285,139 @@
         el.onclick = () => closeRoleForm();
       });
 
+      document.getElementById('cfgBtnPlantillaFlota')?.addEventListener('click', async () => {
+        try {
+          const token = Auth.getToken();
+          const res = await fetch('/api/modulos/checklist/catalogo/plantilla', {
+            headers: { Authorization: 'Bearer ' + token }
+          });
+          if (!res.ok) throw new Error('No se pudo descargar la plantilla');
+          const blob = await res.blob();
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = 'plantilla_flota_esercom.xlsx';
+          a.click();
+          URL.revokeObjectURL(a.href);
+        } catch (err) { UI.flash(err.message, true); }
+      });
+
+      const flotaFile = document.getElementById('cfgExcelFlota');
+      document.getElementById('cfgBtnSubirFlota')?.addEventListener('click', () => flotaFile?.click());
+      document.getElementById('cfgBtnEliminarFlota')?.addEventListener('click', async () => {
+        const name = state.flotaCatalogo.archivo_nombre || 'el catálogo';
+        if (!confirm(`¿Eliminar ${name} y todos los vehículos cargados?`)) return;
+        try {
+          await Auth.api('/api/modulos/checklist/catalogo/eliminar', { method: 'POST', body: '{}' });
+          UI.flash('Catálogo de flota eliminado');
+          boot().then(() => openModal('modalFlotaExcel'));
+        } catch (err) { UI.flash(err.message, true); }
+      });
+      flotaFile?.addEventListener('change', async () => {
+        const file = flotaFile.files?.[0];
+        if (!file) return;
+        if (!/\.xlsx$/i.test(file.name) && !/\.xls$/i.test(file.name)) {
+          UI.flash('Seleccione un archivo Excel (.xlsx)', true);
+          flotaFile.value = '';
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = async () => {
+          try {
+            const res = await Auth.api('/api/modulos/checklist/catalogo/import', {
+              method: 'POST',
+              body: JSON.stringify({ dataUrl: reader.result, filename: file.name })
+            });
+            UI.flash(`Excel «${file.name}» cargado: ${res.total || 0} vehículos`);
+            boot().then(() => openModal('modalFlotaExcel'));
+          } catch (err) { UI.flash(err.message, true); }
+          finally { flotaFile.value = ''; }
+        };
+        reader.readAsDataURL(file);
+      });
+
       btnNewRole.onclick = () => openRoleForm(null);
 
       btnNewUser.onclick = () => {
         resetUserForm(null);
         openModal('modalUserForm');
       };
+
+      async function downloadAuthExcel(url, filename) {
+        const token = Auth.getToken();
+        const res = await fetch(url, { headers: token ? { Authorization: 'Bearer ' + token } : {} });
+        if (!res.ok) {
+          let msg = 'No se pudo descargar';
+          try { const j = await res.json(); if (j.message) msg = j.message; } catch (_) {}
+          throw new Error(msg);
+        }
+        const blob = await res.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = filename;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 1500);
+      }
+
+      function readFileAsDataUrl(file) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = () => reject(new Error('No se pudo leer el archivo'));
+          reader.readAsDataURL(file);
+        });
+      }
+
+      document.getElementById('btnUsersPlantilla')?.addEventListener('click', async () => {
+        try {
+          await downloadAuthExcel('/api/modulos/config/usuarios/plantilla', 'plantilla_usuarios.xlsx');
+        } catch (err) { UI.flash(err.message, true); }
+      });
+      document.getElementById('btnUsersExcel')?.addEventListener('click', () => {
+        document.getElementById('usersExcelFile')?.click();
+      });
+      document.getElementById('usersExcelFile')?.addEventListener('change', async () => {
+        const file = document.getElementById('usersExcelFile')?.files?.[0];
+        if (!file) return;
+        try {
+          const dataUrl = await readFileAsDataUrl(file);
+          const res = await Auth.api('/api/modulos/config/usuarios/import-excel', {
+            method: 'POST',
+            body: JSON.stringify({ dataUrl, filename: file.name })
+          });
+          UI.flash(res.message || `Usuarios cargados: ${res.total || 0}`);
+          boot().then(() => openModal('modalUsers'));
+        } catch (err) { UI.flash(err.message, true); }
+        finally {
+          const inp = document.getElementById('usersExcelFile');
+          if (inp) inp.value = '';
+        }
+      });
+
+      document.getElementById('btnMatsPlantilla')?.addEventListener('click', async () => {
+        try {
+          await downloadAuthExcel('/api/modulos/config/materiales/plantilla', 'plantilla_materiales.xlsx');
+        } catch (err) { UI.flash(err.message, true); }
+      });
+      document.getElementById('btnMatsExcel')?.addEventListener('click', () => {
+        document.getElementById('matsExcelFile')?.click();
+      });
+      document.getElementById('matsExcelFile')?.addEventListener('change', async () => {
+        const file = document.getElementById('matsExcelFile')?.files?.[0];
+        if (!file) return;
+        try {
+          const dataUrl = await readFileAsDataUrl(file);
+          const res = await Auth.api('/api/modulos/config/materiales/import-excel', {
+            method: 'POST',
+            body: JSON.stringify({ dataUrl, filename: file.name })
+          });
+          UI.flash(res.message || `Inventario cargado: ${res.total || 0}`);
+          boot().then(() => openModal('modalMats'));
+        } catch (err) { UI.flash(err.message, true); }
+        finally {
+          const inp = document.getElementById('matsExcelFile');
+          if (inp) inp.value = '';
+        }
+      });
 
       document.querySelectorAll('[data-edit-user]').forEach((btn) => {
         btn.onclick = () => {
@@ -683,6 +1441,8 @@
       });
 
       bindPermUserSearch();
+      bindPermGlobalSearch();
+      bindAllListFilters();
 
       document.querySelectorAll('[data-add-perm]').forEach((btn) => {
         btn.onclick = async () => {
@@ -773,21 +1533,26 @@
             email: uEmail.value,
             cargo: uCargo.value || null,
             telefono: uTelefono.value || null,
-            rol_id: Number(uRol.value),
+            rol_ids: readSelectedRolIds(),
             departamento_id: uDept.value ? Number(uDept.value) : null,
-            ...readFlags('uf')
+            empresas_acceso: readSelectedEmpresas()
           };
+          if (!payload.rol_ids.length) throw new Error('Seleccione al menos un rol');
+          if (!payload.empresas_acceso.length) throw new Error('Seleccione al menos una empresa');
+          payload.rol_id = payload.rol_ids[0];
           if (!id) {
             if (!uPass.value) throw new Error('Password requerida');
             payload.password = uPass.value;
-            await Auth.api('/api/modulos/config/usuarios', { method: 'POST', body: JSON.stringify(payload) });
-            UI.flash('Usuario creado');
+            const created = await Auth.api('/api/modulos/config/usuarios', { method: 'POST', body: JSON.stringify(payload) });
+            UI.flash(`Usuario creado · empresas: ${(created.data?.empresas_acceso || payload.empresas_acceso).join(', ')}`);
           } else {
             if (uPass.value.trim()) payload.password = uPass.value.trim();
             await Auth.api('/api/modulos/config/usuarios/' + id, { method: 'POST', body: JSON.stringify(payload) });
-            UI.flash('Usuario actualizado');
+            UI.flash(`Usuario actualizado · empresas: ${payload.empresas_acceso.join(', ')}`);
           }
           closeAllModals();
+          // Forzar recarga sin caché
+          Auth._getCache?.clear?.();
           boot();
         } catch (err) { UI.flash(err.message, true); }
       };

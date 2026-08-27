@@ -89,7 +89,8 @@
   async function registerSw() {
     if (!('serviceWorker' in navigator)) return;
     try {
-      await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+      const reg = await navigator.serviceWorker.register('/sw.js?v=5', { scope: '/' });
+      reg.update().catch(() => {});
     } catch (err) {
       console.warn('[PWA] SW no registrado:', err.message);
     }

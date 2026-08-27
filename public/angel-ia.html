@@ -6,13 +6,14 @@
   <title>Angel IA - ESERCOM</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <link href="/css/app.css?v=resp2" rel="stylesheet">
+  <link href="/css/app.css?v=mob2" rel="stylesheet">
 </head>
 <body>
-  <script src="/js/auth.js?v=pages1"></script>
+  <script src="/js/auth.js?v=notif2"></script>
   <script src="/js/ui.js?v=resp2"></script>
+  <script src="/js/angel-chat-ui.js?v=voz3"></script>
   <script>
-    const user = renderShell('/angel-ia.html', '<i class="fas fa-robot"></i> Angel IA', 'Asistente OpenAI para reportes, alertas y consultas');
+    const user = renderShell('/angel-ia.html', '<span class="angel-mark angel-mark--inline"><span class="angel-mark-letter">A</span></span> Angel', 'Agente ESERCOM · reportes, alertas y consultas');
 
     async function boot() {
       const content = document.getElementById('app-content');
@@ -29,7 +30,7 @@
           <div class="angel-layout">
             <section class="angel-main card">
               <div class="card-header">
-                <h2><i class="fas fa-robot" style="color:var(--accent)"></i> Conversar con Angel IA</h2>
+                <h2><span class="angel-mark angel-mark--inline"><span class="angel-mark-letter">A</span></span> Conversar con Angel</h2>
                 <span class="badge" style="background:${status.data.activo ? '#22c55e' : '#ef4444'}">
                   ${status.data.activo ? 'Activo · ' + status.data.model : 'Sin API key'}
                 </span>
@@ -37,21 +38,28 @@
               <div class="card-body angel-chat-wrap">
                 ${!status.data.activo ? `
                   <div class="alert alert-error">
-                    Angel IA aún no tiene API key. Un administrador debe configurarla en
-                    <a href="/angel-seguridad.html" style="color:inherit;font-weight:700">Seguridad Angel IA</a>.
+                    Angel IA no está disponible. El administrador debe configurar <code>OPENAI_API_KEY</code> en el servidor.
                   </div>` : ''}
                 <div class="angel-chat" id="chatBox"></div>
                 <form id="chatForm" class="angel-compose">
-                  <input id="chatInput" placeholder="Ej: ¿Qué tengo pendiente? Genera el Excel semanal por CECO…" autocomplete="off" ${status.data.activo ? '' : 'disabled'}>
+                  <input type="file" id="chatPhoto" accept="image/jpeg,image/png,image/webp,image/*" hidden>
+                  <button type="button" class="btn btn-outline angel-attach-btn" id="chatAttach" title="Adjuntar foto (crea incidencia)" ${status.data.activo ? '' : 'disabled'}>
+                    <i class="fas fa-camera"></i>
+                  </button>
+                  <button type="button" class="btn btn-outline angel-mic-btn" id="chatMic" title="Mensaje de voz" ${status.data.activo && status.data.voz?.voz_activa !== false ? '' : 'disabled'}>
+                    <i class="fas fa-microphone"></i>
+                  </button>
+                  <input id="chatInput" placeholder="Escribe, habla o adjunta foto…" autocomplete="off" ${status.data.activo ? '' : 'disabled'}>
                   <button class="btn btn-primary" type="submit" ${status.data.activo ? '' : 'disabled'}>
                     <i class="fas fa-paper-plane"></i>
                   </button>
                 </form>
+                <div class="angel-attach-preview" id="chatPreview" hidden></div>
                 <div class="angel-suggestions">
                   <button type="button" data-q="¿Qué pendientes y alertas hay ahora?">Pendientes</button>
                   <button type="button" data-q="Genera el Excel semanal de movimientos por centro de costo y materiales">Excel semanal</button>
                   <button type="button" data-q="Resume el estado de materiales y stock bajo">Stock</button>
-                  <button type="button" data-q="¿Qué CECOs tienen más solicitudes activas?">CECOs</button>
+                  <button type="button" data-q="Quiero reportar un problema del sistema">Incidencia</button>
                 </div>
               </div>
             </section>
@@ -71,36 +79,83 @@
                 </div>
                 <div class="card-body" id="reportBox">${renderReports(reportes.data)}</div>
               </div>
-              ${String(user.rol||'').toLowerCase().includes('admin') ? `
-              <a class="btn btn-outline" href="/angel-seguridad.html" style="width:100%">
-                <i class="fas fa-shield-halved"></i> Seguridad / API Key
-              </a>` : ''}
             </aside>
           </div>
         `;
 
         const chatBox = document.getElementById('chatBox');
-        historial.data.forEach((m) => appendMsg(chatBox, m.rol, m.contenido));
+        historial.data.forEach((m) => AngelChatUI.appendMsg(chatBox, m.rol, m.contenido, m.downloads));
         if (!historial.data.length) {
-          appendMsg(chatBox, 'assistant', 'Hola, soy Angel IA. Puedo revisar pendientes, generar Excel por CECO/materiales y crear alertas. ¿En qué te ayudo?');
+          AngelChatUI.appendMsg(chatBox, 'assistant', 'Hola, soy Angel IA. Puedo revisar pendientes, generar Excel y crear incidencias si adjuntes una foto del problema. ¿En qué te ayudo?');
+        }
+
+        let pendingPhoto = null;
+        let lastViaVoz = false;
+        let voiceAutoplay = status.data.voz?.voz_autoplay !== false && status.data.voz?.voz_activa !== false;
+
+        document.getElementById('chatAttach')?.addEventListener('click', () => chatPhoto.click());
+        document.getElementById('chatPhoto')?.addEventListener('change', () => {
+          const f = chatPhoto.files?.[0];
+          const box = document.getElementById('chatPreview');
+          if (!f) { pendingPhoto = null; box.hidden = true; box.innerHTML = ''; return; }
+          const reader = new FileReader();
+          reader.onload = () => {
+            pendingPhoto = reader.result;
+            box.hidden = false;
+            box.innerHTML = `<img src="${pendingPhoto}" alt=""><button type="button" id="chatClearPhoto">&times;</button>`;
+            document.getElementById('chatClearPhoto').onclick = () => {
+              pendingPhoto = null; chatPhoto.value = ''; box.hidden = true; box.innerHTML = '';
+            };
+          };
+          reader.readAsDataURL(f);
+        });
+
+        async function sendChat(msg, photo, viaVoz) {
+          if (!msg && !photo) return;
+          chatInput.value = '';
+          AngelChatUI.appendMsg(chatBox, 'user', photo ? `${msg || 'Problema con foto'} 📷` : (viaVoz ? `🎤 ${msg}` : msg));
+          const thinking = AngelChatUI.appendMsg(chatBox, 'assistant', 'Pensando…');
+          pendingPhoto = null;
+          const box = document.getElementById('chatPreview');
+          if (box) { box.hidden = true; box.innerHTML = ''; }
+          if (chatPhoto) chatPhoto.value = '';
+          try {
+            const r = await Auth.api('/api/angel/chat', {
+              method: 'POST',
+              body: JSON.stringify({
+                message: msg || 'Problema reportado con foto',
+                imageDataUrl: photo || null,
+                via_voz: !!viaVoz
+              })
+            });
+            AngelChatUI.setBubble(thinking, r.data.reply, r.data.downloads);
+            if (viaVoz && voiceAutoplay && r.data.reply) {
+              try { await AngelChatUI.speakText(r.data.reply); } catch (_) { /* mute ok */ }
+            }
+            if (r.data.tools?.some((t) => /generar_excel|generar_informe|generar_alertas/.test(t.name))) {
+              refreshSide();
+            }
+          } catch (err) {
+            AngelChatUI.setBubble(thinking, err.message);
+          }
+        }
+
+        if (status.data.activo && status.data.voz?.voz_activa !== false) {
+          AngelChatUI.bindMicButton({
+            button: document.getElementById('chatMic'),
+            input: chatInput,
+            async onText(text) {
+              await sendChat(text, null, true);
+            }
+          });
         }
 
         document.getElementById('chatForm').onsubmit = async (e) => {
           e.preventDefault();
           const msg = chatInput.value.trim();
-          if (!msg) return;
-          chatInput.value = '';
-          appendMsg(chatBox, 'user', msg);
-          const thinking = appendMsg(chatBox, 'assistant', 'Pensando…');
-          try {
-            const r = await Auth.api('/api/angel/chat', { method: 'POST', body: JSON.stringify({ message: msg }) });
-            thinking.querySelector('.angel-bubble').textContent = r.data.reply;
-            if (r.data.tools?.some((t) => t.name === 'generar_excel_semanal' || t.name === 'generar_alertas')) {
-              refreshSide();
-            }
-          } catch (err) {
-            thinking.querySelector('.angel-bubble').textContent = err.message;
-          }
+          const photo = pendingPhoto;
+          if (!msg && !photo) return;
+          await sendChat(msg, photo, false);
         };
 
         document.querySelectorAll('[data-q]').forEach((btn) => {
@@ -153,13 +208,7 @@
     }
 
     function appendMsg(box, rol, text) {
-      const el = document.createElement('div');
-      el.className = `angel-msg ${rol === 'assistant' ? 'bot' : 'me'}`;
-      el.innerHTML = `<div class="angel-bubble"></div>`;
-      el.querySelector('.angel-bubble').textContent = text;
-      box.appendChild(el);
-      box.scrollTop = box.scrollHeight;
-      return el;
+      return AngelChatUI.appendMsg(box, rol, text);
     }
 
     async function refreshSide() {
@@ -172,13 +221,7 @@
     }
 
     async function downloadAuth(url, name) {
-      const res = await fetch(url, { headers: { Authorization: 'Bearer ' + Auth.getToken() } });
-      if (!res.ok) throw new Error('No se pudo descargar');
-      const blob = await res.blob();
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = name;
-      a.click();
+      return AngelChatUI.downloadAuth(url, name);
     }
 
     window.leerAlerta = async (id) => {

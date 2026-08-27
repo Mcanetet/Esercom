@@ -6,76 +6,262 @@
   <title>Agenda Camión Pluma - ESERCOM</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <link href="/css/app.css?v=resp2" rel="stylesheet">
+  <link href="/css/app.css?v=toast1" rel="stylesheet">
 </head>
 <body>
-  <script src="/js/auth.js?v=pages1"></script>
+  <script src="/js/auth.js?v=notif2"></script>
   <script src="/js/ui.js?v=resp2"></script>
+  <script src="/js/agenda-camion-pluma.js?v=20"></script>
   <script>
-    const user = renderShell('/agenda-camion-pluma.html', '<i class="fas fa-truck-ramp-box"></i> Agenda Camión Pluma', 'Servicios y bloqueos del camión pluma');
-    const EMPRESAS = ['Sercom','Global','Intercanje','Tactica','Nexus','Otros'];
+    const user = renderShell(
+      '/agenda-camion-pluma.html',
+      '<i class="fas fa-truck-ramp-box"></i> Agenda Camión Pluma',
+      'Servicios y bloqueos del camión pluma'
+    );
+
     async function boot() {
       const content = document.getElementById('app-content');
       try {
-        const [cecos, list] = await Promise.all([UI.loadCecos(), Auth.api('/api/modulos/agenda')]);
-        const canManage = !!list.can_manage;
+        const [cecos, usuarios, choferes] = await Promise.all([
+          UI.loadCecos(),
+          UI.loadUsuarios(),
+          UI.loadUsuarios('chofer')
+        ]);
+
         content.innerHTML = `
           <div id="flash"></div>
-          ${canManage ? `
-          <div class="card"><div class="card-header"><h2>Programar servicio</h2></div><div class="card-body">
-            <form id="form">
-              <div class="form-row cols-3">
-                <div class="form-group"><label>Empresa *</label><select id="empresa" required>${EMPRESAS.map(e=>`<option ${e===(user.empresaNombre||'')?'selected':''}>${e}</option>`).join('')}</select></div>
-                <div class="form-group"><label>Fecha *</label><input type="date" id="fecha" required></div>
-                <div class="form-group"><label>Tipo</label><select id="tipo_servicio"><option>Servicio</option><option>Bloqueo</option><option>Mantención</option></select></div>
+
+          <section class="cp-metrics">
+            <div class="metric-card"><small>Esta semana</small><div class="value" id="metricTotal">0</div><div class="text-muted">Registros visibles</div></div>
+            <div class="metric-card"><small>Servicios</small><div class="value" id="metricServicios">0</div><div class="text-muted">Semana visible</div></div>
+            <div class="metric-card"><small>Bloqueos</small><div class="value" id="metricBloqueos">0</div><div class="text-muted">Fuera de servicio</div></div>
+            <div class="metric-card"><small>Km estimados</small><div class="value" id="metricKm">0 km</div><div class="text-muted">Carga proyectada</div></div>
+          </section>
+
+          <section class="cp-controls">
+            <div class="cp-week-nav">
+              <button type="button" id="btnPrevWeek" title="Semana anterior"><i class="fas fa-chevron-left"></i></button>
+              <div id="cpWeekLabel" class="fw-semibold">Semana actual</div>
+              <button type="button" id="btnNextWeek" title="Semana siguiente"><i class="fas fa-chevron-right"></i></button>
+              <button type="button" class="btn-outline-cp" id="btnToday">Hoy</button>
+            </div>
+            <div class="cp-filters">
+              <input type="date" id="cpFechaSelector" title="Ir a semana">
+              <select id="cpFiltroEmpresa"><option value="">Todas las empresas</option></select>
+              <select id="cpFiltroEstado">
+                <option value="">Todos los estados</option>
+                <option value="pendiente">Pendiente</option>
+                <option value="confirmado">Confirmado</option>
+                <option value="en_ruta">En ruta</option>
+                <option value="finalizado">Finalizado</option>
+                <option value="cancelado">Cancelado</option>
+                <option value="bloqueado">Bloqueado</option>
+              </select>
+              <label class="cp-finde-check" title="Permite reservar en sábado y domingo">
+                <input type="checkbox" id="cpHabilitarFinde">
+                <span>Habilitar sábado y domingo</span>
+              </label>
+              <label class="cp-reporte-range" title="Rango para exportar Excel">
+                <span class="cp-reporte-label">Reporte</span>
+                <input type="date" id="cpReporteDesde" title="Desde">
+                <span class="cp-reporte-sep">—</span>
+                <input type="date" id="cpReporteHasta" title="Hasta">
+              </label>
+              <button type="button" class="btn btn-outline btn-sm" id="btnExportarExcel">
+                <i class="fas fa-file-excel"></i> Descargar Excel
+              </button>
+            </div>
+          </section>
+
+          <div class="card cp-calendar-card">
+            <div class="card-header cp-calendar-header">
+              <h2><i class="fas fa-calendar-week"></i> Calendario operativo</h2>
+              <div class="cp-header-actions">
+                <button type="button" class="btn btn-outline" id="btnExportarExcelTop" title="Descargar reporte Excel">
+                  <i class="fas fa-file-excel"></i> Excel
+                </button>
+                <button type="button" class="btn btn-outline" id="btnPrecioVenta" style="display:none">
+                  <i class="fas fa-tag"></i> Precio por rango
+                </button>
+                <button type="button" class="btn btn-primary" id="btnProgramar">
+                  <i class="fas fa-plus"></i> Programar un servicio
+                </button>
               </div>
-              <div class="form-row cols-3">
-                <div class="form-group"><label>Hora inicio</label><input type="time" id="hora_inicio"></div>
-                <div class="form-group"><label>Hora fin</label><input type="time" id="hora_fin"></div>
-                <div class="form-group"><label>CECO</label><select id="ceco_id"><option value="">—</option>${UI.optionList(cecos,'id',x=>x.codigo)}</select></div>
+            </div>
+            <div class="card-body">
+              <p class="cp-calendar-hint" id="cpCalendarHint">Vista lun–vie (5 días). Marque el check para mostrar sábado y domingo.</p>
+              <div id="cpCalendarGrid" class="cp-calendar-grid cols-5"></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header"><h2>Próximas salidas</h2></div>
+            <div class="card-body table-wrap cp-tabla-salidas">
+              <table class="data">
+                <thead>
+                  <tr>
+                    <th>Folio</th><th>Fecha</th><th>Horario</th><th>Empresa</th>
+                    <th>CECO</th><th>Ruta</th><th>Km</th><th>OC</th><th>Estado / Acciones</th>
+                  </tr>
+                </thead>
+                <tbody id="cpTablaServicios"><tr><td colspan="8" class="empty">Cargando…</td></tr></tbody>
+              </table>
+              <div id="cpTablaPaginacion" class="cp-tabla-paginacion"></div>
+            </div>
+          </div>
+
+          <div class="cfg-modal" id="cpModalServicio" role="dialog" aria-modal="true">
+            <div class="cfg-modal-backdrop" data-close></div>
+            <div class="cfg-modal-panel cfg-modal-lg">
+              <header class="cfg-modal-head">
+                <div>
+                  <h2 id="cpModalTitle">Programar servicio</h2>
+                  <p id="cpModalSubtitle">Complete los datos del camión pluma</p>
+                </div>
+                <button type="button" class="cfg-modal-x" data-close aria-label="Cerrar">&times;</button>
+              </header>
+              <div class="cfg-modal-body">
+                <form id="cpFormServicio">
+                  <input type="hidden" id="cpServicioId" value="">
+                  <div class="form-row cols-3">
+                    <div class="form-group"><label>Empresa *</label>
+                      <select id="cpEmpresa" required>
+                        <option>Sercom</option><option>Global</option><option>Intercanje</option>
+                        <option>Tactica</option><option>Nexus</option><option>Otros</option>
+                      </select>
+                    </div>
+                    <div class="form-group"><label>Fecha *</label><input type="date" id="cpFecha" required></div>
+                    <div class="form-group"><label>Tipo reserva</label>
+                      <select id="cpTipoReserva"><option value="servicio">Servicio</option><option value="bloqueo">Bloqueo</option></select>
+                    </div>
+                  </div>
+                  <div class="form-row cols-3">
+                    <div class="form-group"><label>Hora inicio *</label><input type="time" id="cpHoraInicio" step="900" required></div>
+                    <div class="form-group"><label>Hora fin *</label><input type="time" id="cpHoraFin" step="900" required></div>
+                    <div class="form-group"><label>Tipo de servicio</label>
+                      <select id="cpTipoServicio">
+                        <option value="operacion">Operación</option>
+                        <option value="traslado_proveedor">Traslado proveedor</option>
+                        <option value="bodega_interno">Bodega interno</option>
+                        <option value="externo">Externo</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="form-row cols-3">
+                    <div class="form-group cp-addr-wrap">
+                      <label>Solicitante</label>
+                      <input id="cpSolicitante" placeholder="Buscar solicitante..." autocomplete="off">
+                      <input type="hidden" id="cpSolicitanteId">
+                      <div id="cpListSolicitante" class="cp-addr-list"></div>
+                    </div>
+                    <div class="form-group"><label>Chofer</label><select id="cpChofer"></select></div>
+                    <div class="form-group"><label>Centro de costo</label><select id="cpCeco"></select></div>
+                  </div>
+                  <div class="form-row cols-3 hidden" id="cpRowEstado">
+                    <div class="form-group"><label>Estado</label>
+                      <select id="cpEstado">
+                        <option value="pendiente">Pendiente</option>
+                        <option value="finalizado">Finalizado</option>
+                        <option value="cancelado">Anulado</option>
+                        <option value="bloqueado">Bloqueado</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div id="cpRowRuta">
+                    <div class="form-row cols-2">
+                      <div class="form-group cp-addr-wrap">
+                        <label>Origen</label>
+                        <input id="cpOrigen" placeholder="Dirección de origen" autocomplete="off">
+                        <div id="cpListOrigen" class="cp-addr-list"></div>
+                      </div>
+                      <div class="form-group cp-addr-wrap">
+                        <label>Destino *</label>
+                        <input id="cpDestino" placeholder="Dirección de destino" autocomplete="off">
+                        <div id="cpListDestino" class="cp-addr-list"></div>
+                      </div>
+                    </div>
+                    <div class="form-row cols-4">
+                      <div class="form-group"><label>Comuna destino</label><input id="cpComuna"></div>
+                      <div class="form-group"><label>Kilometraje</label><input type="number" id="cpKilometraje" min="0" step="0.1"></div>
+                      <div class="form-group"><label>Tramo</label><input id="cpTramo" readonly placeholder="Automático"></div>
+                      <div class="form-group"><label>Precio estimado (IVA)</label><input id="cpPrecioTotal" readonly placeholder="Automático"></div>
+                    </div>
+                    <button type="button" class="btn btn-outline btn-sm" id="cpBtnCalcularKm"><i class="fas fa-route"></i> Calcular km</button>
+                  </div>
+                  <div class="form-row cols-2" style="margin-top:0.75rem">
+                    <div class="form-group">
+                      <label>Orden de compra</label>
+                      <input id="cpOrdenCompra" placeholder="Nº OC / orden de compra" maxlength="128" autocomplete="off">
+                    </div>
+                  </div>
+                  <div class="form-group"><label>Observaciones</label><textarea id="cpObservaciones" rows="2"></textarea></div>
+                  <div class="cfg-modal-footer">
+                    <button type="button" class="btn btn-secondary" data-close>Cancelar</button>
+                    <button type="submit" class="btn btn-primary" id="cpBtnGuardar">Guardar servicio</button>
+                  </div>
+                </form>
               </div>
-              <div class="form-row cols-3">
-                <div class="form-group"><label>Solicitante</label><input id="solicitante"></div>
-                <div class="form-group"><label>Chofer</label><input id="chofer"></div>
-                <div class="form-group"><label>Proyecto</label><input id="proyecto"></div>
+            </div>
+          </div>
+
+          <div class="cfg-modal" id="cpModalPrecioVenta" role="dialog" aria-modal="true">
+            <div class="cfg-modal-backdrop" data-close-precio></div>
+            <div class="cfg-modal-panel cfg-modal-lg">
+              <header class="cfg-modal-head">
+                <div>
+                  <h2><i class="fas fa-tag"></i> Precio venta — Tramos y tarifas</h2>
+                  <p>Configure los tramos por kilometraje y el precio sugerido + IVA</p>
+                </div>
+                <button type="button" class="cfg-modal-x" data-close-precio aria-label="Cerrar">&times;</button>
+              </header>
+              <div class="cfg-modal-body">
+                <p class="cp-calendar-hint">Para más de 45 km se aplica el valor por km adicional configurado abajo.</p>
+                <div class="form-row cols-2">
+                  <div class="form-group">
+                    <label>Precio por km adicional (&gt;45 km)</label>
+                    <input type="number" id="cpPrecioKmAdicional" min="0" value="1800">
+                  </div>
+                  <div class="form-group">
+                    <label>Precio por hora adicional</label>
+                    <input type="number" id="cpPrecioHoraAdicional" min="0" value="18000">
+                  </div>
+                </div>
+                <div class="table-wrap cp-tramos-table-wrap">
+                  <table class="data cp-tramos-table">
+                    <thead>
+                      <tr>
+                        <th>Tramo</th><th>Alcance</th><th>Km min</th><th>Km max</th>
+                        <th>Tiempo</th><th>Precio + IVA</th>
+                      </tr>
+                    </thead>
+                    <tbody id="cpTramosBody"></tbody>
+                  </table>
+                </div>
+                <div class="cp-precio-actions">
+                  <button type="button" class="btn btn-outline btn-sm" id="cpBtnSoloTresTramos">
+                    <i class="fas fa-compress-alt"></i> Dejar solo 3 tramos
+                  </button>
+                  <button type="button" class="btn btn-outline btn-sm" id="cpBtnTramosOficiales">
+                    <i class="fas fa-undo"></i> Restablecer tramos oficiales
+                  </button>
+                </div>
+                <div class="cfg-modal-footer">
+                  <button type="button" class="btn btn-secondary" data-close-precio>Cerrar</button>
+                  <button type="button" class="btn btn-primary" id="cpBtnGuardarPrecios">
+                    <i class="fas fa-save"></i> Guardar precios
+                  </button>
+                </div>
               </div>
-              <div class="form-row cols-3">
-                <div class="form-group"><label>Origen</label><input id="origen"></div>
-                <div class="form-group"><label>Destino</label><input id="destino"></div>
-                <div class="form-group"><label>Km</label><input type="number" id="kilometraje" min="0" step="0.1" value="0"></div>
-              </div>
-              <div class="form-group"><label>Observaciones</label><input id="observaciones"></div>
-              <button class="btn btn-primary" type="submit">Guardar</button>
-            </form>
-          </div></div>` : `
-          <div class="alert alert-ok">Solo usuarios con permiso especial <strong>Control Agenda Camión Pluma</strong> (Configuraciones → Permisos especiales) pueden modificar la agenda. La consulta está disponible abajo.</div>
-          `}
-          <div class="card"><div class="card-header"><h2>Agenda</h2></div>
-            <div class="card-body table-wrap"><table class="data"><thead><tr><th>Fecha</th><th>Horario</th><th>Empresa</th><th>Tipo</th><th>Proyecto</th><th>Ruta</th><th>Km</th><th>Estado</th><th></th></tr></thead>
-            <tbody>${list.data.map(r=>`<tr>
-              <td>${formatDate(r.fecha)}</td><td>${r.hora_inicio||'—'} - ${r.hora_fin||'—'}</td><td>${r.empresa}</td>
-              <td>${r.tipo_servicio}</td><td>${r.proyecto||'—'}</td><td>${(r.origen||'—')+' → '+(r.destino||'—')}</td>
-              <td>${r.kilometraje||0}</td><td>${UI.badge(r.estado,UI.statusColor(r.estado))}</td>
-              <td>${canManage ? `<button class="btn btn-outline btn-sm" onclick="del(${r.id})">Eliminar</button>` : ''}</td>
-            </tr>`).join('')||UI.emptyRow(9)}</tbody></table></div></div>`;
-        if (canManage) {
-          form.onsubmit = async (e) => {
-            e.preventDefault();
-            try {
-              await Auth.api('/api/modulos/agenda', { method:'POST', body: JSON.stringify({
-                empresa: empresa.value, fecha: fecha.value, hora_inicio: hora_inicio.value||null, hora_fin: hora_fin.value||null,
-                tipo_servicio: tipo_servicio.value, solicitante: solicitante.value||null, chofer: chofer.value||null,
-                ceco_id: ceco_id.value?Number(ceco_id.value):null, proyecto: proyecto.value||null,
-                origen: origen.value||null, destino: destino.value||null, kilometraje: Number(kilometraje.value)||0,
-                observaciones: observaciones.value||null, es_bloqueo: tipo_servicio.value==='Bloqueo'
-              })});
-              UI.flash('Agendado'); boot();
-            } catch(err){ UI.flash(err.message,true); }
-          };
-        }
-      } catch(e){ content.innerHTML=`<div class="alert alert-error">${e.message}</div>`; }
+            </div>
+          </div>
+        `;
+
+        await AgendaCamionPluma.init(user, cecos, usuarios, choferes);
+      } catch (e) {
+        content.innerHTML = `<div class="alert alert-error">${e.message}</div>`;
+      }
     }
-    window.del = async (id)=>{ if(!confirm('¿Eliminar?'))return; try { await Auth.api('/api/modulos/agenda/'+id+'/eliminar',{method:'POST',body:'{}'}); boot(); } catch(err){ UI.flash(err.message,true); } };
+
     if (user) boot();
   </script>
 </body>
